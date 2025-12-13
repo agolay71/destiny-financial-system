@@ -32,28 +32,45 @@ jobs:
       # Removed Node.js setup and mock build step, as they are unnecessary 
       # for your pre-uploaded static HTML file and were causing the failure.
 
-      # UPDATED STEP: Create the _site folder and move the index.html file into it, 
-      # handling potential case sensitivity issues to ensure the file is found.
+      # HIGHLY DEFENSIVE STEP: Ensure index.html is found and correctly staged in the _site directory.
       - name: Prepare Static Files
         run: |
+          echo "Listing files in the repository root for debugging:"
+          ls -R
+          
+          # 1. Create staging directory
           mkdir _site
-          # Find the index file regardless of its casing and move it to the _site folder
-          find . -maxdepth 1 -iname "index.html" -exec mv {} _site/ \;
-          # Check if index.html is now in _site
+          
+          # 2. Find the file path regardless of case and store it in a variable
+          # -iname performs case-insensitive search
+          INDEX_FILE=$(find . -maxdepth 1 -iname "index.html" -print -quit)
+          
+          if [ -z "$INDEX_FILE" ]; then
+            echo "Error: Could not find index.html (case insensitive) in the root directory. Check file name."
+            # If the file is not found, force the workflow to fail.
+            exit 1
+          fi
+
+          # 3. Copy the found file to the required path (_site/index.html)
+          cp "$INDEX_FILE" _site/index.html
+          
+          echo "Files in _site directory after copy:"
+          ls -l _site/
+          
           if [ ! -f _site/index.html ]; then
-            echo "Error: index.html was not found or moved. Deployment will likely fail."
-            # Optionally, you could exit here with an error
+            echo "Error: Copy failed. index.html is missing in _site."
+            exit 1
           else
             echo "index.html successfully staged in _site/"
           fi
-          
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Deployment Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Changed path to the clean staging directory, ensuring only web content is uploaded.
+          # Path must point to the directory containing the web files
           path: '_site' 
 
       - name: Deploy to GitHub Pages
