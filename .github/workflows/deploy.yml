@@ -38,25 +38,33 @@ jobs:
           # 1. Create staging directory
           mkdir _site
           
-          # 2. Check if the 'public' directory exists (where the file actually is)
+          # 2. Check if the 'public' directory exists and copy its contents
           if [ -d "public" ]; then
             echo "Found 'public' directory. Copying contents to _site..."
-            # Use cp -r public/. _site/ to copy the *contents* of public into _site
+            # Copy all contents of public into _site
             cp -r public/. _site/
           else
             echo "Error: The 'public' directory was not found. Deployment failed."
             exit 1
           fi
           
-          # 3. Final Check: Ensure index.html exists in the staging directory
-          echo "Files in _site directory after staging:"
+          # 3. Final Check: Ensure index.html exists, and fix common filename errors (like trailing dots)
+          echo "Files in _site directory after staging (checking for index.html):"
           ls -l _site/
           
-          if [ ! -f _site/index.html ]; then
+          # Check for the expected filename (index.html)
+          if [ -f _site/index.html ]; then
+            echo "index.html successfully staged in _site/."
+            
+          # Check for the potentially incorrect filename (index.html.) which was suggested by the logs
+          elif [ -f _site/index.html. ]; then
+            echo "Warning: Found _site/index.html. (with trailing dot). Renaming to index.html."
+            mv _site/index.html. _site/index.html
+            echo "index.html successfully staged and corrected."
+            
+          else
             echo "Error: index.html is missing in _site after copy. Deployment failed."
             exit 1
-          else
-            echo "index.html successfully staged in _site/"
           fi
 
       - name: Setup Pages
