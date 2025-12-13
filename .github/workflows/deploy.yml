@@ -2,7 +2,52 @@ name: Deploy Static Content to GitHub Pages
 
 on:
   # Triggers the workflow on push events to the `main` branch
+  push:name: Deploy Static Content to GitHub Pages
+
+on:
+  # Triggers the workflow on push events to the `main` branch
   push:
+    branches: ["main"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions needed for GitHub Pages deployment (essential for success)
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allows only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # Removed Node.js setup and mock build step, as they are unnecessary 
+      # for your pre-uploaded static HTML file and were causing the failure.
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Deployment Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This path points directly to the 'public' folder you uploaded
+          path: './public' 
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
     branches: ["main"]
 
   # Allows you to run this workflow manually from the Actions tab
