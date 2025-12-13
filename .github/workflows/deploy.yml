@@ -31,6 +31,12 @@ jobs:
       
       # Removed Node.js setup and mock build step, as they are unnecessary 
       # for your pre-uploaded static HTML file and were causing the failure.
+
+      # NEW STEP: Create a clean staging directory and copy the necessary file(s) into it.
+      - name: Prepare Static Files
+        run: |
+          mkdir _site
+          cp index.html _site/
           
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -38,8 +44,8 @@ jobs:
       - name: Upload Deployment Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # FIXED: Changed path from './public' to '.' to include files in the repository root (like index.html)
-          path: '.' 
+          # Changed path to the clean staging directory, ensuring only web content is uploaded.
+          path: '_site' 
 
       - name: Deploy to GitHub Pages
         id: deployment
