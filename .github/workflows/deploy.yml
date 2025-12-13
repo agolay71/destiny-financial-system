@@ -32,11 +32,20 @@ jobs:
       # Removed Node.js setup and mock build step, as they are unnecessary 
       # for your pre-uploaded static HTML file and were causing the failure.
 
-      # NEW STEP: Create a clean staging directory and copy the necessary file(s) into it.
+      # UPDATED STEP: Create the _site folder and move the index.html file into it, 
+      # handling potential case sensitivity issues to ensure the file is found.
       - name: Prepare Static Files
         run: |
           mkdir _site
-          cp index.html _site/
+          # Find the index file regardless of its casing and move it to the _site folder
+          find . -maxdepth 1 -iname "index.html" -exec mv {} _site/ \;
+          # Check if index.html is now in _site
+          if [ ! -f _site/index.html ]; then
+            echo "Error: index.html was not found or moved. Deployment will likely fail."
+            # Optionally, you could exit here with an error
+          else
+            echo "index.html successfully staged in _site/"
+          fi
           
       - name: Setup Pages
         uses: actions/configure-pages@v5
