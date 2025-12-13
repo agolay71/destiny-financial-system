@@ -29,9 +29,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
       
-      # Removed Node.js setup and mock build step, as they are unnecessary 
-      # for your pre-uploaded static HTML file and were causing the failure.
-
       # HIGHLY DEFENSIVE STEP: Ensure index.html is found and correctly staged in the _site directory.
       - name: Prepare Static Files
         run: |
@@ -41,24 +38,22 @@ jobs:
           # 1. Create staging directory
           mkdir _site
           
-          # 2. Find the file path regardless of case and store it in a variable
-          # -iname performs case-insensitive search
-          INDEX_FILE=$(find . -maxdepth 1 -iname "index.html" -print -quit)
-          
-          if [ -z "$INDEX_FILE" ]; then
-            echo "Error: Could not find index.html (case insensitive) in the root directory. Check file name."
-            # If the file is not found, force the workflow to fail.
+          # 2. Check if the 'public' directory exists (where the file actually is)
+          if [ -d "public" ]; then
+            echo "Found 'public' directory. Copying contents to _site..."
+            # Use cp -r public/. _site/ to copy the *contents* of public into _site
+            cp -r public/. _site/
+          else
+            echo "Error: The 'public' directory was not found. Deployment failed."
             exit 1
           fi
-
-          # 3. Copy the found file to the required path (_site/index.html)
-          cp "$INDEX_FILE" _site/index.html
           
-          echo "Files in _site directory after copy:"
+          # 3. Final Check: Ensure index.html exists in the staging directory
+          echo "Files in _site directory after staging:"
           ls -l _site/
           
           if [ ! -f _site/index.html ]; then
-            echo "Error: Copy failed. index.html is missing in _site."
+            echo "Error: index.html is missing in _site after copy. Deployment failed."
             exit 1
           else
             echo "index.html successfully staged in _site/"
