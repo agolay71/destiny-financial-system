@@ -2,10 +2,6 @@ name: Deploy Static Content to GitHub Pages
 
 on:
   # Triggers the workflow on push events to the `main` branch
-  push:name: Deploy Static Content to GitHub Pages
-
-on:
-  # Triggers the workflow on push events to the `main` branch
   push:
     branches: ["main"]
 
@@ -42,57 +38,8 @@ jobs:
       - name: Upload Deployment Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # This path points directly to the 'public' folder you uploaded
-          path: './public' 
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# Sets permissions needed for GitHub Pages deployment
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Allows only one concurrent deployment
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
-jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      - name: Set up Node.js for Build
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      
-      - name: Install Dependencies and Build Project
-        run: |
-          # This mock build step creates the 'public' directory with a placeholder file.
-          mkdir -p public
-          echo "<!DOCTYPE html><html><head><title>Deployed</title></head><body>Deployment Successful!</body></html>" > public/index.html
-          
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Deployment Artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './public' 
+          # FIXED: Changed path from './public' to '.' to include files in the repository root (like index.html)
+          path: '.' 
 
       - name: Deploy to GitHub Pages
         id: deployment
