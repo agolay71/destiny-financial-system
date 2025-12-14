@@ -19,20 +19,23 @@
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
         }
 
-        /* Styling for the temporary message box */
+        /* CRITICAL: Styling for the temporary message box - Centered and High Z-index */
         #messageBox {
             position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            padding: 1rem 1.5rem;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* Center perfectly */
+            z-index: 9999; /* Max visibility */
+            padding: 1.5rem 2.5rem;
             border-radius: 0.75rem;
-            background-color: #0c4a6e; /* Darker Sky Blue */
+            background-color: #dc2626; /* Bright Red for visibility */
             color: white;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
             opacity: 0;
             transition: opacity 0.3s ease-in-out;
-            max-width: 90%; /* Responsive width */
+            max-width: 90%; 
         }
         .message-active {
             opacity: 1 !important;
@@ -49,11 +52,11 @@
             </div>
             <!-- Navigation Links -->
             <div class="space-x-4 hidden sm:flex">
-                <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150">Core Modules</a>
-                <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150">Audit & Compliance</a>
-                <!-- SIGN IN BUTTON WITH NEW VISUAL FEEDBACK -->
+                <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 cursor-pointer">Core Modules</a>
+                <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 cursor-pointer">Audit & Compliance</a>
+                <!-- SIGN IN BUTTON with clear visual feedback -->
                 <button id="signInButtonNav" class="text-white bg-sky-700 px-3 py-1.5 rounded-lg text-sm font-medium transition duration-150 shadow-md 
-                       hover:bg-sky-800 hover:scale-105 active:scale-95 transform">
+                       hover:bg-sky-800 hover:scale-105 active:scale-90 transform cursor-pointer">
                     Sign In
                 </button>
             </div>
@@ -84,13 +87,13 @@
                     The secure, unified platform for all financial management, reporting, and compliance activities within Destiny Investment Corporation.
                 </p>
                 <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
-                    <!-- LAUNCH BUTTON WITH NEW VISUAL FEEDBACK -->
+                    <!-- LAUNCH BUTTON with clear visual feedback -->
                     <button id="launchDashboardButton" class="inline-flex items-center justify-center px-10 py-4 border border-transparent text-lg font-bold rounded-xl shadow-xl text-white bg-sky-700 
                             transition duration-300 transform 
-                            hover:bg-sky-800 hover:scale-105 active:scale-95">
+                            hover:bg-sky-800 hover:scale-105 active:scale-90 cursor-pointer">
                         Launch Dashboard
                     </button>
-                    <a href="#features" class="nav-link inline-flex items-center justify-center px-10 py-4 text-lg font-medium rounded-xl text-gray-700 bg-white border border-gray-300 shadow-md hover:bg-gray-50 transition duration-300">
+                    <a href="#features" class="nav-link inline-flex items-center justify-center px-10 py-4 text-lg font-medium rounded-xl text-gray-700 bg-white border border-gray-300 shadow-md hover:bg-gray-50 transition duration-300 cursor-pointer">
                         Explore Features
                     </a>
                 </div>
@@ -123,7 +126,7 @@
                         </p>
                     </div>
 
-                    <!-- Feature 2: Real-time Reporting -->
+                    <!-- Feature 2: Regulatory Compliance -->
                     <div class="p-6 bg-green-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-green-600">
                         <!-- Icon: Check Circle (Compliance) -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-700 mb-4">
@@ -167,7 +170,7 @@
 
     </main>
 
-    <!-- Temporary Message Box -->
+    <!-- Temporary Message Box (Visible Feedback) -->
     <div id="messageBox"></div>
 
     <!-- Footer -->
@@ -177,9 +180,9 @@
                 <div class="text-xl font-bold">Destiny <span class="text-sky-400">Finance System</span></div>
             </div>
             <div class="space-x-4 text-sm mb-4 text-gray-300">
-                <a href="#features" class="nav-link hover:text-sky-400 transition duration-150">Terms</a>
-                <a href="#reporting" class="nav-link hover:text-sky-400 transition duration-150">Privacy</a>
-                <a href="#" class="nav-link hover:text-sky-400 transition duration-150">Contact IT</a>
+                <a href="#features" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Terms</a>
+                <a href="#reporting" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Privacy</a>
+                <a href="#" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Contact IT</a>
             </div>
             <p class="text-sm text-gray-500 mt-6">
                 &copy; 2025 Destiny Investment Corporation. All rights reserved. Secure Financial Operations.
@@ -190,7 +193,7 @@
     <!-- JavaScript for Interactivity -->
     <script>
         /**
-         * Displays a temporary notification message on the screen.
+         * Displays a temporary notification message in the center of the screen.
          * @param {string} message The text to display.
          */
         function showNotification(message) {
@@ -201,7 +204,7 @@
             // Hide the message after 5 seconds
             setTimeout(() => {
                 messageBox.classList.remove('message-active');
-            }, 5000); // Increased duration to 5 seconds
+            }, 5000); 
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -211,39 +214,37 @@
 
             if (launchDashboardButton) {
                 launchDashboardButton.addEventListener('click', () => {
-                    showNotification('ACTION: Launching the secure dashboard...');
+                    showNotification('ACTION TRIGGERED: Launching Dashboard Portal!');
                     console.log('Launch Dashboard clicked.');
                 });
             }
 
             if (signInButtonNav) {
                 signInButtonNav.addEventListener('click', () => {
-                    showNotification('ACTION: Redirecting to the sign-in portal...');
+                    showNotification('ACTION TRIGGERED: Showing Sign-In Dialog!');
                     console.log('Sign In clicked.');
                 });
             }
 
-            // 2. Attach handlers to all internal navigation links (to handle smooth scroll/feedback)
+            // 2. Attach handlers to all internal navigation links 
             document.querySelectorAll('.nav-link').forEach(link => {
                 const href = link.getAttribute('href');
                 
-                // For links with anchors (e.g., #features), smooth scrolling is handled by CSS
                 if (href && href.startsWith('#') && href.length > 1) {
                     link.addEventListener('click', (e) => {
-                        // The default behavior is allowed, which triggers the CSS smooth scroll
-                        showNotification(`Navigating to section: ${href}`);
+                        // Smooth scrolling handled by CSS, just provide feedback
+                        showNotification(`Navigating to section: ${href.substring(1)}`);
                         console.log(`Navigating to section: ${href}`);
                     });
                 } 
-                // For placeholder links (e.g., # or external links)
                 else {
                     link.addEventListener('click', (e) => {
                         e.preventDefault(); 
-                        showNotification(`Placeholder link clicked: ${link.textContent.trim()}`);
+                        showNotification(`PLACEHOLDER CLICKED: ${link.textContent.trim()}`);
                         console.log(`Placeholder link clicked: ${link.textContent.trim()}`);
                     });
                 }
             });
-            console.log("Interactive scripts loaded and visual feedback added.");
+            console.log("Interactive scripts loaded and maximum visual feedback is active.");
         });
     </script>
