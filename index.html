@@ -7,12 +7,15 @@
     <!-- Load Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* DIAGNOSTIC CSS: If the background turns red, it means CSS is being applied, 
+           and the issue is specifically the Tailwind CDN link failing to load. */
+        body {
+            background-color: red !important; /* Forces the body to be red */
+            font-family: 'Inter', sans-serif;
+        }
+        
         /* Custom Font Setup (Inter) */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f9fc;
-        }
         .header-shadow {
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
         }
