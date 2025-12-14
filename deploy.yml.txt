@@ -1,6 +1,0 @@
-destiny-investments-app/
-├── .github/
-│   └── workflows/
-│       └── deploy.yml  <-- NEW configuration file
-└── public/
-    └── index.html  <-- Your web content
