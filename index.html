@@ -65,7 +65,6 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // FIX: Added 'setDoc' to the import list from firebase-firestore
         import { getFirestore, doc, getDoc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Enable debug logging for Firestore
@@ -105,16 +104,30 @@
             try {
                 // 1. Check for global configuration variables
                 updateStatus("Checking Environment Configuration...", 'loading');
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+                
+                // Retrieve global variables, defaulting to null if undefined
+                const appId = typeof __app_id !== 'undefined' ? __app_id : null;
+                const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-                if (!firebaseConfig) {
-                    throw new Error("Firebase configuration not found. Cannot proceed.");
+                // Mandatory check: App ID
+                if (!appId) {
+                    log("MANDATORY VARIABLE MISSING: __app_id is undefined. Using 'default-app-id'.", 'error');
+                    // We can proceed with a default ID, but warn the user.
+                    // If the environment is not set up correctly, this will fail later.
                 }
 
+                // Mandatory check: Firebase Config
+                if (!firebaseConfigString) {
+                    log("MANDATORY VARIABLE MISSING: __firebase_config is undefined. Initialization will fail.", 'error');
+                    throw new Error("Firebase configuration not found. Cannot proceed.");
+                }
+                
+                // Parse the configuration string
+                const firebaseConfig = JSON.parse(firebaseConfigString);
+
                 log("Configuration loaded successfully.", 'success');
-                log(`App ID: ${appId}`);
+                log(`App ID: ${appId || 'default-app-id'}`);
 
                 // 2. Initialize Firebase App
                 updateStatus("Initializing Firebase App...", 'loading');
@@ -129,11 +142,11 @@
 
                 // The environment provides __initial_auth_token for authentication
                 if (initialAuthToken) {
-                    log("Attempting sign-in with Custom Token...");
+                    log("Attempting sign-in with Custom Token...", 'info');
                     userCredential = await signInWithCustomToken(auth, initialAuthToken);
                     log(`Signed in with Custom Token. User ID: ${userCredential.user.uid}`, 'success');
                 } else {
-                    log("Custom Token not found. Attempting Anonymous sign-in...");
+                    log("Custom Token not found. Attempting Anonymous sign-in...", 'info');
                     userCredential = await signInAnonymously(auth);
                     log(`Signed in Anonymously. User ID: ${userCredential.user.uid}`, 'success');
                 }
@@ -141,29 +154,30 @@
                 const userId = auth.currentUser.uid;
 
                 // 4. Simulate Initial Data Read (Crucial for testing connection speed)
-                updateStatus("Performing initial Firestore read...", 'loading');
-                // We'll try to read a simple user document to ensure full connectivity
-                const docPath = `/artifacts/${appId}/users/${userId}/app_data/connection_test`;
+                updateStatus("Performing initial Firestore read/write test...", 'loading');
+                
+                // Define the document path using the retrieved App ID and User ID
+                const docPath = `/artifacts/${appId || 'default-app-id'}/users/${userId}/app_data/connection_test`;
                 const docRef = doc(db, docPath);
 
-                // Ensure the document exists before trying to read it (optional, but good practice)
-                // setDoc is now defined because it was imported
+                // Write a test document (setDoc) to ensure write permissions
                 await setDoc(docRef, { timestamp: Date.now(), testId: Math.random() }, { merge: true });
-                log("Ensured test document exists/is created.", 'info');
+                log("Successfully wrote test document (setDoc successful).", 'info');
 
+                // Read the document (getDoc) to ensure read permissions
                 const docSnap = await getDoc(docRef);
 
                 if (docSnap.exists()) {
                     log(`Initial data read successful. Document size: ${JSON.stringify(docSnap.data()).length} bytes.`, 'success');
                 } else {
-                    log("Initial data read successful, but test document did not exist.", 'success');
+                    log("Initial data read successful, but test document was empty.", 'success');
                 }
 
                 // 5. Final Success
                 let connectionEndTime = Date.now();
                 let totalTimeMs = connectionEndTime - connectionStartTime;
 
-                log(`Connection established and data read in ${totalTimeMs} ms.`, 'success');
+                log(`Connection established and data verified in ${totalTimeMs} ms.`, 'success');
 
                 updateStatus(`Connected successfully! (${totalTimeMs} ms)`, 'success');
 
@@ -173,7 +187,10 @@
 
 
             } catch (error) {
+                // Log detailed error to console
                 console.error("FIREBASE CONNECTION ERROR:", error);
+                
+                // Log summarized error to UI
                 log(`Failed to connect. Error: ${error.message}`, 'error');
                 updateStatus("Connection Failed (Check Console)", 'error');
             }
