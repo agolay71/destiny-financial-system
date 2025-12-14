@@ -1,50 +1,44 @@
-name: Deploy Static Content to GitHub Pages
-
-on:
-  # Triggers the workflow on push events to the `main` branch
-  push:
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# Sets permissions needed for GitHub Pages deployment
+# Optional: Set permissions to allow GitHub Actions to create the deployment
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allows only one concurrent deployment
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+steps:
+  - name: Checkout Code
+    uses: actions/checkout@v4
 
-jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        # FIX: Changed colon (:) to slash (/)
-        uses: actions/checkout@v4
-      
-      # Since index.html is in the 'public' folder, we assume no build is needed.
-      # We skip Node.js setup and any mock build steps.
-          
-      - name: Setup Pages
-        # FIX: Changed colon (:) to slash (/)
-        uses: actions/configure-pages@v5
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: '20' # Use a stable Node.js version
 
-      - name: Upload Deployment Artifact
-        # FIX: Changed colon (:) to slash (/)
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # This path correctly points to your 'public' folder.
-          path: './public' 
+  - name: Cache Node Modules
+    uses: actions/cache@v4
+    with:
+      path: node_modules
+      key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      restore-keys: |
+        ${{ runner.os }}-node-
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        # FIX: Changed colon (:) to slash (/)
-        uses: actions/deploy-pages@v4
+  - name: Install Dependencies
+    # Use 'npm ci' for clean, consistent installation in CI environments
+    run: npm ci
+
+  - name: Build Project
+    # This is the standard build command. Change 'build' if your package.json uses a different script (e.g., 'prod')
+    run: npm run build
+
+  - name: Setup GitHub Pages Environment
+    uses: actions/configure-pages@v5
+
+  - name: Upload Artifact
+    uses: actions/upload-pages-artifact@v3
+    with:
+      # This assumes your built files are in the 'dist' directory.
+      # Change this path if your build output is different (e.g., 'build', 'out')
+      path: './dist'
+
+  - name: Deploy to GitHub Pages
+    id: deployment
+    uses: actions/deploy-pages@v4
