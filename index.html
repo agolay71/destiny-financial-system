@@ -50,7 +50,7 @@
         let currentView = 'loading';
         let isAuthReady = false;
         let userId = null;
-        let userRole = 'Guest'; // Initial state before login
+        let userRole = 'Guest'; // Initial state before login or role fetch
 
         // Firebase Instances
         let app, auth, db;
@@ -60,8 +60,20 @@
 
         // References to the main view containers
         const views = {}; 
+        let loadingStatusElement; // Reference to the loading message element
 
-        // === VIEW MANAGEMENT ===
+        // === UTILITIES ===
+
+        /**
+         * Updates the status message on the loading screen.
+         * @param {string} message The message to display.
+         */
+        function updateLoadingStatus(message) {
+            if (loadingStatusElement) {
+                loadingStatusElement.textContent = message;
+                console.log(`Loading Status: ${message}`);
+            }
+        }
 
         /**
          * Switches the application view based on the provided view name.
@@ -81,6 +93,9 @@
             if (navLinks) {
                 if (viewName === 'landing') {
                     navLinks.classList.remove('hidden');
+                    // Reset scroll to top when navigating to landing anchors
+                    document.documentElement.scrollTop = 0; 
+                    document.body.scrollTop = 0;
                 } else {
                     navLinks.classList.add('hidden');
                 }
@@ -92,6 +107,18 @@
                  roleDisplay.textContent = `Role: ${userRole} | ID: ${userId ? userId.substring(0, 8) + '...' : 'N/A'}`;
             }
 
+            // Update dashboard text
+             const dashboardRoleDisplay = document.getElementById('dashboardRoleDisplay');
+             const adminControlPanel = document.getElementById('adminControlPanel');
+             if (viewName === 'dashboard' && dashboardRoleDisplay) {
+                dashboardRoleDisplay.textContent = userRole;
+                if (userRole === 'SuperAdmin') {
+                    adminControlPanel.classList.remove('hidden-view');
+                } else {
+                    adminControlPanel.classList.add('hidden-view');
+                }
+             }
+
             console.log(`Navigation successful. Current View: ${currentView} | Role: ${userRole}`);
         }
 
@@ -99,6 +126,8 @@
 
         async function initFirebaseAndAuth() {
             try {
+                updateLoadingStatus("Connecting to Firebase...");
+                
                 // 1. Get configuration
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
@@ -109,37 +138,40 @@
                 auth = firebase.getAuth(app);
                 db = firebase.getFirestore(app);
 
-                // Set Firestore logging to Debug (optional, but good practice for debugging)
-                // firebase.setLogLevel('debug'); 
+                // 3. Set up Auth State Listener (handles initial sign-in result)
+                let authChecked = false;
 
-                // 3. Authenticate
+                firebase.onAuthStateChanged(auth, async (user) => {
+                    if (authChecked) return; // Only process the first status change
+                    authChecked = true;
+
+                    if (user) {
+                        userId = user.uid;
+                        updateLoadingStatus(`Authenticated as UID: ${userId.substring(0, 8)}...`);
+                        await fetchUserRole(userId); // Get the user's role
+                    } else {
+                        userId = null;
+                        userRole = 'Guest';
+                        updateLoadingStatus("Authentication completed as Guest.");
+                    }
+                    
+                    isAuthReady = true;
+                    // Always navigate to landing after auth check is complete
+                    navigateTo('landing');
+                });
+                
+                // 4. Perform Initial Authentication Attempt
+                updateLoadingStatus("Attempting custom token sign-in...");
                 if (initialAuthToken) {
                     await firebase.signInWithCustomToken(auth, initialAuthToken);
                 } else {
                     await firebase.signInAnonymously(auth);
                 }
 
-                // 4. State Update on Auth Change (Crucial for getting the UID)
-                firebase.onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        await fetchUserRole(userId);
-                        isAuthReady = true;
-                        // If we are still in loading, move to landing page
-                        if (currentView === 'loading') {
-                            navigateTo('landing');
-                        }
-                    } else {
-                        userId = null;
-                        userRole = 'Guest';
-                        isAuthReady = true;
-                        navigateTo('landing'); // Should still show landing page even if unauthenticated
-                    }
-                });
-
             } catch (error) {
                 console.error("Firebase Initialization Failed:", error);
-                // Fallback to landing page with guest role if initialization fails
+                updateLoadingStatus("Error connecting. Proceeding as Guest.");
+                // Ensure navigation happens even on error
                 userRole = 'Guest';
                 isAuthReady = true;
                 navigateTo('landing');
@@ -158,9 +190,10 @@
                 const docSnap = await firebase.getDoc(roleDocRef);
                 if (docSnap.exists()) {
                     userRole = docSnap.data().role || 'User';
+                    updateLoadingStatus(`Role found: ${userRole}.`);
                 } else {
-                    // Role not set yet, remains 'Guest' until registration attempt
-                    userRole = 'Guest';
+                    userRole = 'Guest'; // Unregistered user
+                    updateLoadingStatus("User is unregistered.");
                 }
             } catch (e) {
                 console.error("Error fetching user role:", e);
@@ -170,20 +203,18 @@
 
         /**
          * Handles the login/registration process. The first user gets SuperAdmin role.
-         * Note: Since we are using an anonymous/custom token, we skip email/password creation 
-         * and focus on role assignment on the first 'login' attempt.
          */
         async function handleLoginOrRegister(e) {
             e.preventDefault();
+
             if (!isAuthReady || !userId) {
-                // Should not happen if auth is correctly awaited, but good defensive programming
-                console.error("Authentication not ready. Cannot register/login.");
+                alertBox('Connection not ready. Please wait for initialization.');
                 return;
             }
 
             const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value; // Currently unused in this simplified flow
-
+            // Password is not used for Firebase auth but is required for the form UI
+            
             const loginButton = document.getElementById('loginSubmitButton');
             loginButton.disabled = true;
             loginButton.textContent = 'Processing...';
@@ -195,35 +226,33 @@
                 let assignedRole = 'User'; // Default role
 
                 await firebase.runTransaction(db, async (transaction) => {
-                    // 1. Check if a SuperAdmin already exists by querying for role: 'SuperAdmin'
-                    const q = firebase.query(rolesCollectionRef, firebase.where("role", "==", "SuperAdmin"));
-                    const querySnapshot = await firebase.getDocs(q);
-
-                    if (querySnapshot.empty) {
-                        // NO SuperAdmin exists. This user is the first.
-                        assignedRole = 'SuperAdmin';
+                    const userDocRef = firebase.doc(rolesCollectionRef, userId);
+                    const userDoc = await transaction.get(userDocRef);
+                    
+                    if (userDoc.exists()) {
+                        // User already registered, use existing role
+                        assignedRole = userDoc.data().role;
                     } else {
-                        // SuperAdmin exists. Check if this user already has a role.
-                        const userDocRef = firebase.doc(rolesCollectionRef, userId);
-                        const userDoc = await transaction.get(userDocRef);
-                        
-                        if (userDoc.exists()) {
-                            // User already registered, use existing role
-                            assignedRole = userDoc.data().role;
+                        // NEW USER: Check if a SuperAdmin already exists
+                        const q = firebase.query(rolesCollectionRef, firebase.where("role", "==", "SuperAdmin"));
+                        const querySnapshot = await firebase.getDocs(q);
+
+                        if (querySnapshot.empty) {
+                            // NO SuperAdmin exists. This user is the first.
+                            assignedRole = 'SuperAdmin';
                         } else {
-                            // New user, but SuperAdmin exists, assign default 'User'
+                            // SuperAdmin exists. Assign default 'User'.
                             assignedRole = 'User';
                         }
+                        
+                        // Set the new user's role
+                        transaction.set(userDocRef, { 
+                            uid: userId, 
+                            username: username, 
+                            role: assignedRole,
+                            registeredAt: new Date().toISOString()
+                        }, { merge: true });
                     }
-
-                    // 2. Set the user's final role
-                    const userRoleDocRef = firebase.doc(rolesCollectionRef, userId);
-                    transaction.set(userRoleDocRef, { 
-                        uid: userId, 
-                        username: username, 
-                        role: assignedRole,
-                        registeredAt: new Date().toISOString()
-                    }, { merge: true });
                 });
 
                 userRole = assignedRole;
@@ -241,12 +270,16 @@
 
         // === DOM CONTENT AND BINDING ===
         document.addEventListener('DOMContentLoaded', () => {
-            // Populate views map
+            // Populate views map and loading status element
             views.loading = document.getElementById('loadingView');
             views.landing = document.getElementById('landingView');
             views.login = document.getElementById('loginView');
             views.dashboard = document.getElementById('dashboardView');
-            
+            loadingStatusElement = document.getElementById('loadingStatus');
+
+            // Set initial view to loading
+            navigateTo('loading');
+
             // Start the Firebase initialization
             initFirebaseAndAuth();
 
@@ -258,7 +291,7 @@
             if (launchDashboardButton) {
                 launchDashboardButton.addEventListener('click', () => {
                     // If authenticated but not registered, go to login. If registered, go to dashboard.
-                    if (userId && userRole !== 'Guest') {
+                    if (userRole !== 'Guest') {
                         navigateTo('dashboard');
                     } else {
                         navigateTo('login');
@@ -276,19 +309,17 @@
                 loginForm.addEventListener('submit', handleLoginOrRegister);
             }
 
-            // Bind navigation links (for landing page anchors)
+            // Bind navigation links and back buttons
             document.querySelectorAll('.nav-link').forEach(link => {
-                link.addEventListener('click', (e) => {
-                    // Allow anchor links to work, but ensure we are on the landing view first
-                    if (currentView !== 'landing') {
-                        navigateTo('landing');
-                    }
-                });
+                link.addEventListener('click', () => navigateTo('landing'));
             });
-
-            // Bind back buttons
+            
             document.querySelectorAll('[data-navigate]').forEach(btn => {
                 btn.addEventListener('click', () => {
+                    // For the "Logout" button, reset role to 'Guest' for immediate redirect on next launch
+                    if (btn.getAttribute('data-navigate') === 'landing') {
+                         userRole = 'Guest'; 
+                    }
                     navigateTo(btn.getAttribute('data-navigate'));
                 });
             });
@@ -334,7 +365,7 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p class="mt-4 text-xl text-gray-600">Initializing Secure Connection...</p>
+            <p id="loadingStatus" class="mt-4 text-xl text-gray-600">Initializing Secure Connection...</p>
         </div>
     </div>
 
@@ -420,7 +451,7 @@
                 Secure Access
             </h2>
             <p id="adminStatusMsg" class="text-center text-sm mb-6 text-orange-600 font-medium">
-                Please enter a Username to register and assign your role.
+                Please enter a Username to register and assign your role. The first registered user becomes the SuperAdmin.
             </p>
             <form id="loginForm">
                 <div class="mb-4">
@@ -447,10 +478,10 @@
     <div id="dashboardView" class="hidden-view py-20 min-h-[80vh]">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 class="text-5xl font-extrabold text-sky-700 mb-6">
-                Welcome, <span class="capitalize" id="dashboardRoleDisplay">{{userRole}}</span>!
+                Welcome, <span class="capitalize" id="dashboardRoleDisplay"></span>!
             </h2>
             <p class="text-xl text-gray-600 mb-10">
-                You are currently logged in with the **<span class="font-bold text-lg text-red-600">{{userRole}}</span>** role.
+                You are currently logged in with the **<span class="font-bold text-lg text-red-600 capitalize">{{userRole}}</span>** role.
             </p>
             <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-sky-600 max-w-4xl mx-auto">
                 <p class="text-2xl font-semibold text-gray-800 mb-4">Dashboard Access Panel</p>
@@ -464,10 +495,10 @@
                         <p class="text-sm uppercase tracking-wider">Daily Trade Volume</p>
                     </div>
                 </div>
-                <div class="mt-8 p-4 bg-yellow-50 rounded-lg text-left border-l-4 border-yellow-500" id="adminControlPanel">
+                <div class="mt-8 p-4 bg-yellow-50 rounded-lg text-left border-l-4 border-yellow-500 hidden-view" id="adminControlPanel">
                     <!-- Admin specific message -->
-                    <p class="font-bold text-yellow-800">Administrator Notice:</p>
-                    <p class="text-sm text-yellow-700">As a SuperAdmin, you have full control over user provisioning and security settings. This panel would typically contain system management links.</p>
+                    <p class="font-bold text-yellow-800">SuperAdmin Control Notice:</p>
+                    <p class="text-sm text-yellow-700">You have successfully been designated as the system's SuperAdmin. This role grants full control over user provisioning and security settings.</p>
                 </div>
             </div>
             <button data-navigate="landing" class="app-button mt-12 inline-flex items-center px-6 py-3 border border-gray-300 text-lg font-medium rounded-xl text-gray-700 bg-white shadow-md hover:bg-gray-50 transition duration-300 active:scale-95">
