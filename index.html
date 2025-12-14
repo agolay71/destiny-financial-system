@@ -1,152 +1,1252 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Destiny Investment Corporation Financial System</title>
-    <!-- Load Tailwind CSS CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Custom Font Setup (Inter) */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f7f9fc;
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, query, onSnapshot, orderBy, where, addDoc, updateDoc, writeBatch, deleteDoc, getDocs, getDoc, serverTimestamp, setLogLevel } from 'firebase/firestore';
+import { RefreshCcw, DollarSign, Users, TrendingUp, Briefcase, MinusCircle, PlusCircle, CreditCard, ListChecks, ArrowDownCircle, ArrowUpCircle, Settings, FileText, Scale } from 'lucide-react';
+
+// --- GLOBAL VARIABLES & FIREBASE SETUP ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Helper function for exponential backoff retry logic
+const withRetry = async (fn, maxRetries = 3) => {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+            // console.warn(`Retrying after ${delay}ms...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
-        .header-shadow {
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+    }
+};
+
+setLogLevel('silent'); // Set to 'debug' for detailed console logs
+
+// --- CORE UTILITIES ---
+
+const TransactionTypes = {
+    // Member Contributions/Fees (Income)
+    REGISTRATION_FEE: 'Registration Fee',
+    SAVINGS: 'Savings',
+    FIXED_DEPOSIT: 'Fixed Monthly Deposit',
+    LOAN_REPAYMENT: 'Loan Repayment',
+    INTEREST_LOANER_CREDIT: 'Interest Credit (Loaning Member)',
+    
+    // General Operations (Income/Expense)
+    INCOME: 'General Income',
+    EXPENDITURE: 'General Expenditure',
+    
+    // Loan Disbursement (Asset)
+    LOAN_DISBURSEMENT: 'Loan Disbursement',
+    
+    // Interest Distribution (Income/Expense)
+    INTEREST_GENERAL_POT: 'Interest (General Pot)',
+    FEE_ADMIN: 'Administrative Fee',
+    FEE_BANKING: 'Banking/Transport Cost',
+    
+    // Ledger Correction
+    ADJUSTMENT: 'Ledger Adjustment',
+};
+
+const LOAN_ANNUAL_RATE = 0.20; // 20%
+const INTEREST_DISTRIBUTION = {
+    LOANING_MEMBER: 0.50, // 50% to the Loaning Member
+    GENERAL_POT: 0.30,    // 30% to the General Pot
+    BANKING_FEE: 0.10,    // 10% Banking/Transport Cost
+    ADMIN_FEE: 0.10,      // 10% Administrative Fee
+};
+
+// Utility function to calculate the monthly repayment schedule
+const calculateRepaymentSchedule = (principal, months) => {
+    // Calculate total interest over the term (Simplified method: Principal * Term Rate)
+    const termRate = LOAN_ANNUAL_RATE / 12 * months; 
+    const totalInterest = principal * termRate;
+
+    // Total Amount Due (Principal + Interest)
+    const totalDue = principal + totalInterest;
+
+    // Equal Monthly Payment
+    const monthlyPayment = totalDue / months;
+    
+    const schedule = [];
+    
+    for (let i = 1; i <= months; i++) {
+        // For simplicity in this demo, principal and interest are repaid equally each month
+        const principalPayment = principal / months; 
+        const interestPayment = totalInterest / months;
+
+        schedule.push({
+            month: i,
+            principal: principalPayment,
+            interest: interestPayment,
+            totalPayment: monthlyPayment,
+            dueDate: new Date(Date.now() + i * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Mock due date
+            status: 'Pending'
+        });
+    }
+    
+    return { schedule, totalInterest };
+};
+
+
+// --- MAIN APP COMPONENT ---
+
+const App = () => {
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [userRole, setUserRole] = useState('Loading'); // Superadmin, Admin, Member, Guest
+    const [isAuthReady, setIsAuthReady] = useState(false);
+
+    // Data States
+    const [users, setUsers] = useState([]);
+    const [transactions, setTransactions] = useState([]);
+    const [loans, setLoans] = useState([]);
+    const [currency, setCurrency] = useState('GHS'); // Default currency
+
+    // UI State
+    const [view, setView] = useState('Dashboard');
+    const [notification, setNotification] = useState(null);
+
+    // --- ROLE DEFINITION ---
+    const isSuper = userRole === 'Superadmin';
+    const isAdmin = userRole === 'Admin' || isSuper; // Admin includes Superadmin rights
+    const isMember = userRole === 'Member' || isAdmin; // If you have a role, you are a member of the system
+
+    // ----------------------------------------------------
+    // 1. FIREBASE INITIALIZATION & AUTHENTICATION
+    // ----------------------------------------------------
+
+    useEffect(() => {
+        try {
+            const app = initializeApp(firebaseConfig);
+            const firestore = getFirestore(app);
+            const firebaseAuth = getAuth(app);
+            
+            setDb(firestore);
+            setAuth(firebaseAuth);
+
+            // 1. Sign In
+            const signIn = async () => {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(firebaseAuth, initialAuthToken);
+                } else {
+                    await signInAnonymously(firebaseAuth);
+                }
+            };
+            
+            // 2. Auth State Listener
+            const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+                if (user) {
+                    setUserId(user.uid);
+                    // Fetch user profile/role (Public data path for shared user profiles)
+                    const userDocRef = doc(firestore, `artifacts/${appId}/public/data/users`, user.uid);
+                    onSnapshot(userDocRef, (docSnap) => {
+                        const profile = docSnap.data();
+                        const role = profile?.role || 'Member'; // Default role
+                        setUserRole(role);
+                        setIsAuthReady(true);
+                    }, (error) => {
+                        console.error("Error fetching user role:", error);
+                        setUserRole('Member'); // Fallback
+                        setIsAuthReady(true);
+                    });
+                } else {
+                    setUserId(null);
+                    setUserRole('Guest');
+                    setIsAuthReady(true);
+                }
+            });
+
+            // Run sign-in and cleanup listener
+            signIn();
+            return () => unsubscribe();
+        } catch (error) {
+            console.error("Firebase Initialization Error:", error);
+            setIsAuthReady(true);
         }
-    </style>
-</head>
-<body>
+    }, []);
 
-    <!-- Header / Navigation -->
-    <header class="sticky top-0 z-50 bg-white border-b border-gray-100 header-shadow">
-        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div class="text-2xl font-bold text-gray-900">
-                Destiny <span class="text-indigo-600">Finance</span>
-            </div>
-            <div class="space-x-4 hidden sm:flex">
-                <a href="#features" class="text-gray-600 hover:text-indigo-600 transition duration-150">Features</a>
-                <a href="#reporting" class="text-gray-600 hover:text-indigo-600 transition duration-150">Reporting</a>
-                <a href="#" class="text-white bg-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition duration-150">Sign In</a>
-            </div>
-            <!-- Mobile Menu Placeholder -->
-            <button class="sm:hidden text-gray-600 hover:text-indigo-600">
-                <!-- Simple hamburger icon (Lucide Icon: Menu) -->
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="4" x2="20" y1="12" y2="12" />
-                    <line x1="4" x2="20" y1="6" y2="6" />
-                    <line x1="4" x2="20" y1="18" y2="18" />
-                </svg>
-            </button>
-        </nav>
-    </header>
+    // ----------------------------------------------------
+    // 2. FIREBASE DATA LISTENERS (onSnapshot)
+    // ----------------------------------------------------
 
-    <!-- Main Content Area -->
-    <main class="py-16 md:py-24">
-        <!-- 1. Hero Section (Updated Content) -->
-        <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
-            <div class="max-w-3xl mx-auto">
-                <span class="inline-block px-3 py-1 mb-4 text-xs font-semibold uppercase tracking-wide text-indigo-600 bg-indigo-100 rounded-full">
-                    Destiny Investment Corporation
-                </span>
-                <h1 class="text-5xl md:text-7xl font-extrabold text-gray-900 leading-tight mb-6">
-                    Integrated <span class="text-indigo-600">Financial System</span> App
-                </h1>
-                <p class="text-xl text-gray-600 mb-10 max-w-2xl mx-auto">
-                    A secure and powerful platform for seamless financial management, analysis, and real-time regulatory reporting for Destiny Investment Corporation.
-                </p>
-                <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
-                    <a href="#" class="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-300 transform hover:scale-[1.02]">
-                        Access Dashboard
-                    </a>
-                    <a href="#features" class="inline-flex items-center justify-center px-8 py-3 text-base font-medium rounded-xl text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition duration-300">
-                        View Core Modules
-                    </a>
-                </div>
-            </div>
-        </section>
+    useEffect(() => {
+        if (!db || !isAuthReady || userRole === 'Guest') return;
 
-        <!-- 2. Features Section (Updated Content for Financial App) -->
-        <section id="features" class="bg-white py-16 md:py-20 border-t border-gray-100">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="text-center mb-16">
-                    <h2 class="text-3xl font-extrabold text-gray-900 sm:text-4xl mb-4">
-                        Core Modules for Modern Finance
-                    </h2>
-                    <p class="mt-4 text-lg text-gray-600">
-                        Streamline operations, enhance compliance, and drive smarter investment decisions.
-                    </p>
-                </div>
+        // Listener 1: Users (Public data)
+        const qUsers = query(collection(db, `artifacts/${appId}/public/data/users`));
+        const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+            const userList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            setUsers(userList);
+        }, (error) => console.error("Error fetching users:", error));
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-                    <!-- Feature 1: Integrated Teams -->
-                    <div class="p-6 bg-indigo-50 rounded-xl shadow-md transition duration-300 hover:shadow-xl">
-                        <!-- Icon: Wallet (Money) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600 mb-4">
-                            <path d="M21 12V7H3v5c0 1.25.74 2.37 1.84 2.87.65.3 1.34.42 2.02.32L10 16" />
-                            <path d="M12 2v3" />
-                            <path d="M7 16V9a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3v-7" />
-                            <circle cx="12" cy="12" r="2" />
-                            <path d="M16 12h2" />
-                        </svg>
-                        <h3 class="text-xl font-bold text-gray-900 mb-2">Portfolio Management</h3>
-                        <p class="text-gray-600">
-                            Track, analyze, and manage all investment portfolios with granular, real-time data feeds.
-                        </p>
-                    </div>
+        // Listener 2: Transactions (Public data) - Ordered by timestamp for ledger viewing
+        const qTransactions = query(collection(db, `artifacts/${appId}/public/data/transactions`), orderBy('timestamp', 'desc'));
+        const unsubTxn = onSnapshot(qTransactions, (snapshot) => {
+            const txnList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            setTransactions(txnList);
+        }, (error) => console.error("Error fetching transactions:", error));
 
-                    <!-- Feature 2: Real-time Reporting -->
-                    <div class="p-6 bg-green-50 rounded-xl shadow-md transition duration-300 hover:shadow-xl">
-                        <!-- Icon: Bar Chart (Reporting) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600 mb-4">
-                            <path d="M12 20V10" />
-                            <path d="M18 20V4" />
-                            <path d="M6 20v-4" />
-                            <path d="M2 20h20" />
-                        </svg>
-                        <h3 class="text-xl font-bold text-gray-900 mb-2">Real-time Compliance</h3>
-                        <p class="text-gray-600">
-                            Automated generation of regulatory reports (e.g., GAAP, IFRS) with instant validation checks.
-                        </p>
-                    </div>
+        // Listener 3: Loans (Public data)
+        const qLoans = query(collection(db, `artifacts/${appId}/public/data/loans`), orderBy('requestDate', 'desc'));
+        const unsubLoans = onSnapshot(qLoans, (snapshot) => {
+            const loanList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            setLoans(loanList);
+        }, (error) => console.error("Error fetching loans:", error));
 
-                    <!-- Feature 3: Secure Scalability -->
-                    <div class="p-6 bg-yellow-50 rounded-xl shadow-md transition duration-300 hover:shadow-xl">
-                        <!-- Icon: Lock (Security) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-yellow-600 mb-4">
-                            <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        <h3 class="text-xl font-bold text-gray-900 mb-2">Bank-Grade Security</h3>
-                        <p class="text-gray-600">
-                            State-of-the-art encryption and multi-factor authentication protect sensitive client and company data.
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </section>
+        // Listener 4: Settings (Currency)
+        const unsubSettings = onSnapshot(doc(db, `artifacts/${appId}/public/data/settings/currency`), (docSnap) => {
+            if (docSnap.exists()) {
+                setCurrency(docSnap.data().symbol || 'GHS');
+            } else {
+                setCurrency('GHS'); // Fallback
+            }
+        }, (error) => console.error("Error fetching settings:", error));
 
-    </main>
+        return () => {
+            unsubUsers();
+            unsubTxn();
+            unsubLoans();
+            unsubSettings();
+        };
 
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-white py-8 mt-12">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <div class="mb-4">
-                <div class="text-lg font-bold">Destiny <span class="text-indigo-400">Finance</span></div>
-            </div>
-            <div class="space-x-4 text-sm mb-4">
-                <a href="#features" class="hover:text-indigo-400 transition duration-150">Modules</a>
-                <a href="#reporting" class="hover:text-indigo-400 transition duration-150">Audit</a>
-                <a href="#" class="hover:text-indigo-400 transition duration-150">Support</a>
-                <a href="#" class="hover:text-indigo-400 transition duration-150">Legal</a>
-            </div>
-            <p class="text-sm text-gray-400">
-                &copy; 2025 Destiny Investment Corporation. All rights reserved.
-            </p>
+    }, [db, isAuthReady, userRole]);
+
+    // ----------------------------------------------------
+    // 3. CORE COMPUTED VALUES (Shares, Balances)
+    // ----------------------------------------------------
+
+    // Shares are calculated based on fixed monthly deposits (1 share per 1,000 currency units)
+    const calculateMemberShares = useCallback((memberId) => {
+        const memberTxns = transactions.filter(t => t.memberId === memberId && t.type === TransactionTypes.FIXED_DEPOSIT);
+        const totalFMD = memberTxns.reduce((sum, t) => sum + t.amount, 0);
+        return Math.floor(totalFMD / 1000);
+    }, [transactions]);
+
+    const totalBalances = useMemo(() => {
+        const summary = {
+            totalCashBalance: 0,
+            generalPot: 0,
+            loanPrincipalOutstanding: 0,
+            members: {} // Member ID -> current shares/savings balance
+        };
+
+        // Types that increase the main cash balance (Credits)
+        const incomeTxnTypes = [
+            TransactionTypes.REGISTRATION_FEE, 
+            TransactionTypes.SAVINGS, 
+            TransactionTypes.FIXED_DEPOSIT, 
+            TransactionTypes.INCOME, 
+            TransactionTypes.LOAN_REPAYMENT,
+            TransactionTypes.INTEREST_LOANER_CREDIT,
+            TransactionTypes.INTEREST_GENERAL_POT, // Interest revenue adds to cash
+            TransactionTypes.ADJUSTMENT // Adjustment can be credit or debit
+        ];
+        
+        // Types that decrease the main cash balance (Debits)
+        const expenseTxnTypes = [
+            TransactionTypes.EXPENDITURE, 
+            TransactionTypes.LOAN_DISBURSEMENT, // Loan disbursement is cash outflow
+            TransactionTypes.FEE_ADMIN, 
+            TransactionTypes.FEE_BANKING,
+            // Adjustment handled in loop
+        ];
+        
+        // Initialize member balances
+        users.forEach(user => summary.members[user.id] = 0);
+
+        for (const txn of transactions) {
+            const amount = txn.amount || 0;
+            
+            // 1. Cash Balance Tracking (Bank/Cash-in-Hand)
+            if (incomeTxnTypes.includes(txn.type)) {
+                summary.totalCashBalance += amount;
+            } else if (expenseTxnTypes.includes(txn.type)) {
+                summary.totalCashBalance -= amount; 
+            } else if (txn.type === TransactionTypes.ADJUSTMENT) {
+                summary.totalCashBalance += amount; // Amount can be positive (credit) or negative (debit)
+            }
+
+            // 2. Member Specific Balances (FMD/Savings/Interest credited)
+            if (txn.memberId && summary.members.hasOwnProperty(txn.memberId)) {
+                if ([TransactionTypes.SAVINGS, TransactionTypes.FIXED_DEPOSIT, TransactionTypes.INTEREST_LOANER_CREDIT].includes(txn.type)) {
+                    summary.members[txn.memberId] += amount;
+                } 
+            }
+            
+            // 3. General Pot Tracking (The 30% interest contribution)
+            if (txn.type === TransactionTypes.INTEREST_GENERAL_POT) {
+                summary.generalPot += amount;
+            }
+        }
+        
+        // 4. Loan Principal Outstanding (Asset: What members owe us)
+        const disbursedPrincipal = transactions.filter(t => t.type === TransactionTypes.LOAN_DISBURSEMENT).reduce((sum, t) => sum + t.amount, 0);
+        // Note: LOAN_REPAYMENT in this simplified model covers both principal and interest, 
+        // but for a true 'Principal Outstanding' liability, we track the loan amount itself.
+        const repaidPrincipal = loans.filter(l => l.status === 'Disbursed').reduce((sum, l) => {
+            // This is complex: need to filter all repayment transactions related to a loan
+            const loanRepayments = transactions.filter(t => t.type === TransactionTypes.LOAN_REPAYMENT && t.loanId === l.id);
+            // Assuming loan repayment is always principal repayment in this simple summary
+            return sum + loanRepayments.reduce((s, t) => s + t.amount, 0); 
+        }, 0); 
+        
+        // Simplified Outstanding: Total amount requested minus any repayments received
+        const totalLoaned = loans.filter(l => l.status === 'Disbursed').reduce((sum, l) => sum + (l.principalAmount || 0), 0);
+        const totalRepaid = transactions.filter(t => t.type === TransactionTypes.LOAN_REPAYMENT).reduce((sum, t) => sum + (t.amount || 0), 0);
+        
+        // This is a rough estimate for the demo. In a real system, principal repayment must be tracked separately.
+        // For simplicity: We track the total principal loaned out. 
+        summary.loanPrincipalOutstanding = totalLoaned - totalRepaid; 
+
+
+        return summary;
+    }, [transactions, users, loans]);
+    
+    const totalShares = useMemo(() => {
+        return users.reduce((sum, user) => sum + calculateMemberShares(user.id), 0);
+    }, [users, calculateMemberShares]);
+
+    const formatCurrency = useCallback((amount) => {
+        if (typeof amount !== 'number') return `${currency} 0.00`;
+        // Ensure no negative sign for zero
+        if (amount === 0) return `${currency} 0.00`;
+        const sign = amount < 0 ? `(${currency} ` : `${currency} `;
+        return `${sign}${Math.abs(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${amount < 0 ? ')' : ''}`;
+    }, [currency]);
+
+
+    // ----------------------------------------------------
+    // 4. TRANSACTION/DATA HANDLERS
+    // ----------------------------------------------------
+
+    const showNotification = (message, type = 'info') => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 4000);
+    };
+
+    const handleGeneralTransaction = async (data) => {
+        if (!db || !userId) return;
+        try {
+            await withRetry(() => 
+                addDoc(collection(db, `artifacts/${appId}/public/data/transactions`), {
+                    ...data,
+                    amount: Number(data.amount),
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                })
+            );
+            showNotification(`${data.type} recorded successfully!`, 'success');
+        } catch (e) {
+            console.error("Error adding document:", e);
+            showNotification(`Failed to record transaction: ${e.message}`, 'error');
+        }
+    };
+
+    const handleMemberTransaction = async (data) => {
+        if (!db || !userId) return;
+        try {
+            const memberExists = users.some(u => u.id === data.memberId);
+            if (!memberExists) {
+                showNotification('Member not found. Please register the member first.', 'error');
+                return;
+            }
+
+            await withRetry(() => 
+                addDoc(collection(db, `artifacts/${appId}/public/data/transactions`), {
+                    ...data,
+                    amount: Number(data.amount),
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                })
+            );
+            showNotification(`${data.type} recorded for ${data.memberId} successfully!`, 'success');
+        } catch (e) {
+            console.error("Error adding document:", e);
+            showNotification(`Failed to record transaction: ${e.message}`, 'error');
+        }
+    };
+    
+    const handleRegisterMember = async (memberData) => {
+        if (!db || !userId) return;
+        try {
+            const newMemberId = `MEM-${Date.now().toString().slice(-6)}`;
+            
+            // 1. Create User Document
+            await withRetry(() => 
+                setDoc(doc(db, `artifacts/${appId}/public/data/users`, newMemberId), {
+                    ...memberData,
+                    id: newMemberId,
+                    role: 'Member',
+                    registrationDate: serverTimestamp(),
+                    registeredBy: userId,
+                })
+            );
+
+            // 2. Record Registration Fee Transaction
+            await handleMemberTransaction({
+                type: TransactionTypes.REGISTRATION_FEE,
+                amount: 50, // Default fee
+                memberId: newMemberId,
+                description: 'Initial registration fee collection',
+            });
+            
+            showNotification(`Member ${newMemberId} registered successfully!`, 'success');
+            return newMemberId;
+
+        } catch (e) {
+            console.error("Error registering member:", e);
+            showNotification(`Failed to register member: ${e.message}`, 'error');
+            return null;
+        }
+    };
+
+    // ----------------------------------------------------
+    // 5. LOAN MANAGEMENT LOGIC
+    // ----------------------------------------------------
+
+    const handleLoanRequest = async (data) => {
+        if (!db || !userId) return;
+        try {
+            await withRetry(() => 
+                addDoc(collection(db, `artifacts/${appId}/public/data/loans`), {
+                    ...data,
+                    memberId: userId,
+                    requestDate: serverTimestamp(),
+                    status: 'Requested',
+                    principalAmount: Number(data.principalAmount),
+                    repaymentMonths: Number(data.repaymentMonths),
+                })
+            );
+            showNotification('Loan request submitted for admin review.', 'success');
+        } catch (e) {
+            console.error("Error submitting loan request:", e);
+            showNotification(`Failed to submit request: ${e.message}`, 'error');
+        }
+    };
+
+    // Loan approval and disbursement logic (Superadmin only)
+    const handleLoanProcessing = async (loanId, newStatus, principal, months, loaneeId) => {
+        if (!db || !userId) return;
+        
+        try {
+            const loanRef = doc(db, `artifacts/${appId}/public/data/loans`, loanId);
+            
+            if (newStatus === 'Approved' && isSuper) {
+                
+                // 1. Calculate Repayment Schedule and Total Interest
+                const { schedule, totalInterest } = calculateRepaymentSchedule(principal, months);
+                
+                // 2. Calculate Interest Distribution based on policy
+                const interestLoaningMember = totalInterest * INTEREST_DISTRIBUTION.LOANING_MEMBER; 
+                const interestGeneralPot = totalInterest * INTEREST_DISTRIBUTION.GENERAL_POT;     
+                const feeBanking = totalInterest * INTEREST_DISTRIBUTION.BANKING_FEE;            
+                const feeAdmin = totalInterest * INTEREST_DISTRIBUTION.ADMIN_FEE;              
+
+                const batch = writeBatch(db);
+                
+                // --- TRANSACTION LOGGING (Atomic Batch Commit) ---
+                
+                // 1. LOAN DISBURSEMENT (Cash Outflow / Asset creation)
+                batch.set(doc(collection(db, `artifacts/${appId}/public/data/transactions`)), {
+                    type: TransactionTypes.LOAN_DISBURSEMENT,
+                    amount: principal, // Cash Outflow for the loan principal
+                    memberId: loaneeId,
+                    loanId: loanId,
+                    description: `Principal disbursement for Loan ID: ${loanId}`,
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                });
+
+                // 2. INTEREST CREDIT (50% to Loaning Member/Internal Fund) - Cash Inflow
+                // This interest amount represents the expected future profit component allocated to the internal fund.
+                batch.set(doc(collection(db, `artifacts/${appId}/public/data/transactions`)), {
+                    type: TransactionTypes.INTEREST_LOANER_CREDIT,
+                    amount: interestLoaningMember,
+                    memberId: loaneeId, // Associate with loanee for tracking purposes
+                    loanId: loanId,
+                    description: `50% Estimated Interest Credit on Loan ${loanId} to Loaning Member Fund.`,
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                });
+
+                // 3. GENERAL POT (30%) - Cash Inflow
+                batch.set(doc(collection(db, `artifacts/${appId}/public/data/transactions`)), {
+                    type: TransactionTypes.INTEREST_GENERAL_POT,
+                    amount: interestGeneralPot,
+                    loanId: loanId,
+                    description: `30% Estimated Interest contribution to General Pot from Loan ${loanId}`,
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                });
+
+                // 4. ADMIN FEE (10%) - Cash Inflow
+                batch.set(doc(collection(db, `artifacts/${appId}/public/data/transactions`)), {
+                    type: TransactionTypes.FEE_ADMIN,
+                    amount: feeAdmin,
+                    loanId: loanId,
+                    description: `10% Administrative Fee from Loan ${loanId}`,
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                });
+                
+                // 5. BANKING FEE (10%) - Cash Inflow
+                batch.set(doc(collection(db, `artifacts/${appId}/public/data/transactions`)), {
+                    type: TransactionTypes.FEE_BANKING,
+                    amount: feeBanking,
+                    loanId: loanId,
+                    description: `10% Banking/Transport Cost from Loan ${loanId}`,
+                    timestamp: serverTimestamp(),
+                    recordedBy: userId,
+                });
+
+                // 6. Update Loan Document
+                batch.update(loanRef, {
+                    status: 'Disbursed', 
+                    principalAmount: principal,
+                    repaymentMonths: months,
+                    totalInterest: totalInterest,
+                    repaymentSchedule: schedule,
+                    approvalDate: serverTimestamp(),
+                    approvedBy: userId,
+                    totalDue: principal + totalInterest,
+                });
+                
+                await withRetry(() => batch.commit());
+                showNotification(`Loan ${loanId} approved and disbursed successfully! Total Interest: ${formatCurrency(totalInterest)}`, 'success');
+                
+            } else if (newStatus === 'Rejected' && isAdmin) {
+                await withRetry(() => updateDoc(loanRef, {
+                    status: 'Rejected',
+                    processedBy: userId,
+                    rejectionDate: serverTimestamp(),
+                }));
+                showNotification(`Loan ${loanId} rejected.`, 'info');
+                
+            } else if (newStatus === 'Adjustment' && isAdmin) {
+                // Admin can adjust, but only Superadmin can approve the final disbursement
+                await withRetry(() => updateDoc(loanRef, {
+                    status: 'Processing',
+                    principalAmount: principal,
+                    repaymentMonths: months,
+                    processedBy: userId,
+                    adminNotes: `Adjusted by Admin/Superadmin (${userId}). Awaiting Superadmin approval for disbursement.`,
+                }));
+                showNotification(`Loan ${loanId} adjusted and sent for Superadmin approval.`, 'info');
+            }
+
+        } catch (e) {
+            console.error("Error processing loan:", e);
+            showNotification(`Failed to process loan: ${e.message}`, 'error');
+        }
+    };
+
+    // ----------------------------------------------------
+    // 6. UI COMPONENTS
+    // ----------------------------------------------------
+
+    const Loading = () => (
+        <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-t-indigo-500 border-gray-200"></div>
+            <p className="mt-6 text-lg text-indigo-700 font-semibold">Initializing Financial System...</p>
         </div>
-    </footer>
+    );
 
-</body>
-</html>
+    const NotificationToast = () => notification && (
+        <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-2xl text-white z-50 transition-opacity duration-300 ${
+            notification.type === 'success' ? 'bg-green-600' : 
+            notification.type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+        } flex items-center`}>
+            {notification.message}
+        </div>
+    );
+    
+    // --- Role Select Mock (For Demo Purposes) ---
+    const RoleSelector = () => {
+        const handleRoleChange = async (e) => {
+            const newRole = e.target.value;
+            if (newRole === 'Guest') {
+                window.location.reload(); 
+                return;
+            }
+            try {
+                // Only Superadmin can change roles in the live system, but we allow all roles to test for demo
+                const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+                await setDoc(userDocRef, { role: newRole }, { merge: true });
+                showNotification(`Role set to ${newRole}. UI refreshing...`, 'info');
+            } catch (e) {
+                showNotification('Error setting role. Try logging in again.', 'error');
+            }
+        };
+
+        return (
+            <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs md:text-sm flex flex-col md:flex-row items-center justify-between shadow-inner">
+                <span className="font-semibold text-indigo-800 mr-2 mb-1 md:mb-0">Role: {userRole}</span>
+                <span className="text-gray-500 text-[10px] md:text-xs truncate hidden sm:inline-block">UID: {userId}</span>
+                {userRole !== 'Guest' && (
+                    <select 
+                        onChange={handleRoleChange} 
+                        value={userRole} 
+                        className="mt-1 md:mt-0 md:ml-4 p-1 rounded-md border border-gray-300 text-xs bg-white shadow-sm"
+                    >
+                        <option value="Superadmin">Superadmin</option>
+                        <option value="Admin">Admin</option>
+                        <option value="Member">Member</option>
+                    </select>
+                )}
+            </div>
+        );
+    };
+
+    // --- Shared Form Component ---
+    const GeneralForm = ({ type, memberRequired = false, isCredit = false, isAdjustment = false }) => {
+        const [memberId, setMemberId] = useState('');
+        const [amount, setAmount] = useState('');
+        const [description, setDescription] = useState('');
+        
+        const onSubmit = (e) => {
+            e.preventDefault();
+            let finalAmount = parseFloat(amount);
+            
+            // For general expenditure (debit), amount should be negative for ledger consistency
+            if (type === TransactionTypes.EXPENDITURE && finalAmount > 0) {
+                 finalAmount = -finalAmount;
+            }
+
+            const data = { 
+                type: type, 
+                amount: finalAmount, 
+                description 
+            };
+            
+            if (memberRequired) {
+                if (!memberId) {
+                    showNotification('Member ID is required.', 'error');
+                    return;
+                }
+                data.memberId = memberId;
+                handleMemberTransaction(data);
+            } else {
+                handleGeneralTransaction(data);
+            }
+            setAmount('');
+            setDescription('');
+        };
+
+        const iconMap = {
+            [TransactionTypes.SAVINGS]: <DollarSign size={20} className="text-green-600" />,
+            [TransactionTypes.FIXED_DEPOSIT]: <TrendingUp size={20} className="text-teal-600" />,
+            [TransactionTypes.INCOME]: <PlusCircle size={20} className="text-green-600" />,
+            [TransactionTypes.EXPENDITURE]: <MinusCircle size={20} className="text-red-600" />,
+            [TransactionTypes.ADJUSTMENT]: <Scale size={20} className="text-purple-600" />,
+        };
+        
+        const formColor = isAdjustment ? 'purple' : isCredit ? 'green' : 'red';
+        const submitText = isAdjustment ? 'Record Adjustment' : isCredit ? 'Record Credit' : 'Record Debit';
+
+        return (
+            <form onSubmit={onSubmit} className={`p-6 bg-white rounded-xl shadow-lg border border-${formColor}-100`}>
+                <div className="flex items-center space-x-3 mb-4 border-b pb-2">
+                    {iconMap[type] || <CreditCard size={20} />}
+                    <h3 className={`text-xl font-bold text-${formColor}-700`}>{type}</h3>
+                </div>
+                <div className="space-y-4">
+                    {memberRequired && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Member ID</label>
+                            <select 
+                                value={memberId} 
+                                onChange={(e) => setMemberId(e.target.value)}
+                                required 
+                                className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-indigo-500 focus:border-indigo-500"
+                            >
+                                <option value="">Select Member</option>
+                                {users.filter(u => u.role === 'Member').map(user => (
+                                    <option key={user.id} value={user.id}>{user.id} - {user.firstName || 'New Member'}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Amount ({currency}) - {isAdjustment ? 'Positive for Credit, Negative for Debit' : 'Always positive'}</label>
+                        <input 
+                            type="number" 
+                            step="0.01" 
+                            value={amount} 
+                            onChange={(e) => setAmount(e.target.value)}
+                            required 
+                            className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea 
+                            value={description} 
+                            onChange={(e) => setDescription(e.target.value)}
+                            rows="2"
+                            required 
+                            className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-indigo-500 focus:border-indigo-500"
+                        ></textarea>
+                    </div>
+                    <button 
+                        type="submit" 
+                        className={`w-full py-3 px-4 rounded-lg shadow-md text-white font-semibold transition-colors duration-200 bg-${formColor}-600 hover:bg-${formColor}-700 focus:ring-${formColor}-500 focus:outline-none focus:ring-2 focus:ring-offset-2`}
+                    >
+                        {submitText}
+                    </button>
+                </div>
+            </form>
+        );
+    };
+
+    // --- Member Registration Form ---
+    const MemberRegistrationForm = () => {
+        const [firstName, setFirstName] = useState('');
+        const [lastName, setLastName] = useState('');
+        const [cellNumber, setCellNumber] = useState('');
+        const [isSubmitting, setIsSubmitting] = useState(false);
+        
+        const onSubmit = async (e) => {
+            e.preventDefault();
+            setIsSubmitting(true);
+            const success = await handleRegisterMember({ 
+                firstName, 
+                lastName, 
+                cellNumber, 
+                photoUrl: `https://placehold.co/100x100/1e40af/ffffff?text=${firstName[0]}${lastName[0]}`
+            });
+            if (success) {
+                setFirstName('');
+                setLastName('');
+                setCellNumber('');
+            }
+            setIsSubmitting(false);
+        };
+
+        return (
+            <form onSubmit={onSubmit} className="p-6 bg-indigo-50 border border-indigo-200 rounded-xl shadow-lg">
+                <div className="flex items-center space-x-3 mb-4 border-b border-indigo-200 pb-2">
+                    <Users size={20} className="text-indigo-700" />
+                    <h3 className="text-xl font-bold text-indigo-700">Register New Member</h3>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                    <input type="text" placeholder="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required className="p-3 border rounded-lg shadow-sm" />
+                    <input type="text" placeholder="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} required className="p-3 border rounded-lg shadow-sm" />
+                    <input type="tel" placeholder="Cell Number (e.g. 055xxxxxxx)" value={cellNumber} onChange={(e) => setCellNumber(e.target.value)} required className="p-3 border rounded-lg shadow-sm" />
+                    <button 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        className="py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 shadow-md transition-colors"
+                    >
+                        {isSubmitting ? 'Registering...' : 'Register Member'}
+                    </button>
+                </div>
+                <p className="mt-3 text-sm text-gray-500">Includes a default registration fee of {currency}50.</p>
+            </form>
+        );
+    };
+
+    // --- Member Loan Request Form ---
+    const LoanRequestForm = () => {
+        const [principalAmount, setPrincipalAmount] = useState('');
+        const [repaymentMonths, setRepaymentMonths] = useState(6);
+        const [purpose, setPurpose] = useState('');
+        const [isSubmitting, setIsSubmitting] = useState(false);
+
+        const onSubmit = async (e) => {
+            e.preventDefault();
+            setIsSubmitting(true);
+            await handleLoanRequest({ 
+                principalAmount, 
+                repaymentMonths, 
+                purpose 
+            });
+            setPrincipalAmount('');
+            setPurpose('');
+            setRepaymentMonths(6);
+            setIsSubmitting(false);
+        };
+
+        return (
+            <form onSubmit={onSubmit} className="p-6 bg-yellow-50 border border-yellow-200 rounded-xl shadow-lg">
+                <div className="flex items-center space-x-3 mb-4 border-b border-yellow-200 pb-2">
+                    <Briefcase size={20} className="text-yellow-700" />
+                    <h3 className="text-xl font-bold text-yellow-700">Request a Loan</h3>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Principal Amount ({currency})</label>
+                        <input 
+                            type="number" 
+                            step="100" 
+                            value={principalAmount} 
+                            onChange={(e) => setPrincipalAmount(e.target.value)}
+                            required 
+                            min="1000"
+                            className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Repayment Period (Months, Max 10)</label>
+                        <input 
+                            type="number" 
+                            value={repaymentMonths} 
+                            onChange={(e) => setRepaymentMonths(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                            required 
+                            min="1"
+                            max="10"
+                            className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Loan Purpose</label>
+                        <textarea 
+                            value={purpose} 
+                            onChange={(e) => setPurpose(e.target.value)}
+                            rows="2"
+                            required 
+                            className="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm p-3"
+                        ></textarea>
+                    </div>
+                    <button 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        className="w-full py-3 px-4 bg-yellow-600 text-white font-semibold rounded-lg hover:bg-yellow-700 disabled:bg-gray-400 shadow-md transition-colors"
+                    >
+                        {isSubmitting ? 'Submitting...' : 'Submit Loan Request'}
+                    </button>
+                </div>
+            </form>
+        );
+    };
+    
+    // --- Inquiry/Feedback Portal (Placeholder) ---
+    const InquiryPortal = () => {
+        const handleInquiry = () => {
+            showNotification("Inquiry submitted! A real system would save this to a 'inquiries' collection.", 'info');
+        };
+
+        return (
+            <div className="p-6 bg-blue-100 rounded-xl shadow-lg border border-blue-200 text-center">
+                <h3 className="text-xl font-bold text-blue-800 mb-4">Inquiry / Feedback Portal</h3>
+                <p className="text-sm text-blue-700 mb-4">Have a question or need to report a payment? Submit your inquiry here.</p>
+                <button 
+                    onClick={handleInquiry}
+                    className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-md font-semibold transition-colors"
+                >
+                    Submit New Inquiry
+                </button>
+            </div>
+        );
+    };
+
+    // --- Admin/Superadmin Loan Management ---
+    const LoanManagement = () => {
+        const pendingLoans = loans.filter(l => l.status === 'Requested' || l.status === 'Processing');
+
+        return (
+            <div className="p-4 bg-white rounded-lg shadow-inner">
+                <h3 className="text-xl font-bold text-gray-700 mb-4 flex items-center space-x-2">
+                    <RefreshCcw size={20} />
+                    <span>Pending Loans ({pendingLoans.length})</span>
+                </h3>
+                {pendingLoans.length === 0 ? (
+                    <p className="text-center p-4 text-gray-500 border rounded-lg">No pending loan requests.</p>
+                ) : (
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {pendingLoans.map(loan => (
+                            <LoanCard key={loan.id} loan={loan} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const LoanCard = ({ loan }) => {
+        const [principal, setPrincipal] = useState(loan.principalAmount);
+        const [months, setMonths] = useState(loan.repaymentMonths);
+
+        const canApprove = isSuper && loan.status !== 'Disbursed' && loan.status !== 'Rejected';
+        const canAdjustOrReject = isAdmin && loan.status !== 'Disbursed' && loan.status !== 'Rejected';
+        
+        const member = users.find(u => u.id === loan.memberId);
+
+        return (
+            <div className="p-4 border border-gray-200 rounded-lg shadow-sm bg-gray-50 transition-shadow hover:shadow-md">
+                <div className="flex justify-between items-start mb-2">
+                    <h4 className="font-bold text-sm text-gray-800">#{loan.id} ({member?.firstName || 'Unknown'})</h4>
+                    <span className={`px-3 py-1 text-[10px] font-semibold rounded-full ${
+                        loan.status === 'Requested' ? 'bg-blue-100 text-blue-800' : 
+                        loan.status === 'Processing' ? 'bg-yellow-100 text-yellow-800' : 
+                        loan.status === 'Disbursed' ? 'bg-green-100 text-green-800' : 
+                        'bg-red-100 text-red-800'
+                    }`}>{loan.status}</span>
+                </div>
+                
+                <p className="text-xs text-gray-600 mb-2 truncate">Purpose: {loan.purpose}</p>
+
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                    <div>
+                        <label className="block text-xs font-medium text-gray-700">Amount ({currency})</label>
+                        <input type="number" value={principal} onChange={(e) => setPrincipal(parseFloat(e.target.value))} className="w-full p-1 text-sm border rounded-md" disabled={!canAdjustOrReject} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-700">Months (1-10)</label>
+                        <input type="number" value={months} onChange={(e) => setMonths(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))} className="w-full p-1 text-sm border rounded-md" disabled={!canAdjustOrReject} />
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    {canAdjustOrReject && (
+                        <button 
+                            onClick={() => handleLoanProcessing(loan.id, 'Rejected', principal, months, loan.memberId)}
+                            className="flex-1 py-1 px-2 text-xs bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors min-w-[80px]"
+                        >
+                            Reject
+                        </button>
+                    )}
+                    {canAdjustOrReject && loan.status === 'Requested' && (
+                        <button 
+                            onClick={() => handleLoanProcessing(loan.id, 'Adjustment', principal, months, loan.memberId)}
+                            className="flex-1 py-1 px-2 text-xs bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors min-w-[80px]"
+                        >
+                            Adjust & Forward
+                        </button>
+                    )}
+                    {canApprove && (
+                        <button 
+                            onClick={() => handleLoanProcessing(loan.id, 'Approved', principal, months, loan.memberId)}
+                            className="flex-1 py-1 px-2 text-xs bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors min-w-[80px]"
+                        >
+                            Approve & Disburse
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    // --- Reports View ---
+    const ReportsView = () => {
+        const income = transactions.filter(t => [
+            TransactionTypes.REGISTRATION_FEE, 
+            TransactionTypes.INCOME, 
+            TransactionTypes.LOAN_REPAYMENT,
+            TransactionTypes.INTEREST_LOANER_CREDIT,
+            TransactionTypes.INTEREST_GENERAL_POT, 
+            TransactionTypes.ADJUSTMENT
+        ].includes(t.type) && t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
+
+        const expenses = transactions.filter(t => [
+            TransactionTypes.EXPENDITURE, 
+            TransactionTypes.LOAN_DISBURSEMENT,
+            TransactionTypes.FEE_ADMIN, 
+            TransactionTypes.FEE_BANKING
+        ].includes(t.type) || (t.type === TransactionTypes.ADJUSTMENT && t.amount < 0)).reduce((sum, t) => sum + Math.abs(t.amount), 0); // Use Math.abs for expense tracking
+
+        const netIncome = income - expenses;
+        const sharePrice = 1000; // Value per share unit
+        const totalSharesValue = totalShares * sharePrice; 
+        
+        const StatCard = ({ title, value, color, icon }) => (
+            <div className={`p-6 bg-white rounded-xl shadow-lg border-t-4 border-${color}-500 flex items-center justify-between`}>
+                <div>
+                    <p className="text-sm font-medium text-gray-500">{title}</p>
+                    <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+                </div>
+                <div className={`p-3 rounded-full bg-${color}-100 text-${color}-600`}>
+                    {icon}
+                </div>
+            </div>
+        );
+        
+        const LedgerTable = ({ data, title }) => (
+            <div className="bg-white p-6 rounded-xl shadow-lg mt-8">
+                <h3 className="text-xl font-semibold text-indigo-700 mb-4 border-b pb-2">{title} ({data.length})</h3>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount ({currency})</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {data.map((txn) => {
+                                const isCredit = txn.amount >= 0;
+                                const date = txn.timestamp?.seconds ? new Date(txn.timestamp.seconds * 1000).toLocaleDateString() : 'N/A';
+                                const memberName = users.find(u => u.id === txn.memberId)?.firstName || '';
+                                
+                                return (
+                                    <tr key={txn.id} className="hover:bg-indigo-50 transition-colors">
+                                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">{date}</td>
+                                        <td className="px-6 py-3 whitespace-nowrap text-xs font-medium text-gray-900">{txn.type}</td>
+                                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600">{memberName || 'N/A'}</td>
+                                        <td className={`px-6 py-3 whitespace-nowrap text-right font-bold text-sm ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                                            {formatCurrency(txn.amount)}
+                                        </td>
+                                        <td className="px-6 py-3 whitespace-normal text-xs text-gray-600 max-w-xs truncate">{txn.description}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+
+
+        return (
+            <div className="p-4 md:p-6 bg-white rounded-xl shadow-xl">
+                <h2 className="text-2xl md:text-3xl font-bold mb-8 text-indigo-800 border-b pb-3 flex items-center space-x-2">
+                    <FileText size={28} />
+                    <span>Financial Reports & Ledger</span>
+                </h2>
+
+                {/* Main Balances Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <StatCard title="Total Cash Balance" value={formatCurrency(totalBalances.totalCashBalance)} color="green" icon={<DollarSign size={24} />} />
+                    <StatCard title="Loans Outstanding (Asset)" value={formatCurrency(totalBalances.loanPrincipalOutstanding)} color="red" icon={<Briefcase size={24} />} />
+                    <StatCard title="General Pot Value" value={formatCurrency(totalBalances.generalPot)} color="blue" icon={<CreditCard size={24} />} />
+                    <StatCard title="Total Member Shares" value={`${totalShares.toLocaleString()} shares`} color="yellow" icon={<Users size={24} />} />
+                </div>
+                
+                {/* Simplified Trial Balance / Income Statement */}
+                <h3 className="text-xl font-semibold mt-8 mb-4 border-b pb-2 text-indigo-700">Income & Expenditure Statement</h3>
+                <div className="bg-gray-50 p-4 rounded-xl shadow-inner">
+                    <div className="flex justify-between font-bold border-b border-gray-300 py-2">
+                        <span>Category</span>
+                        <span>Amount ({currency})</span>
+                    </div>
+                    <div className="flex justify-between py-1 text-green-700">
+                        <span>Total Income (Credits)</span>
+                        <span>{formatCurrency(income)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 text-red-700">
+                        <span>Total Expenditure (Debits)</span>
+                        <span>{formatCurrency(-expenses)}</span>
+                    </div>
+                    <div className={`flex justify-between py-2 mt-2 border-t border-gray-300 font-bold ${netIncome >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                        <span>NET INCOME / (LOSS)</span>
+                        <span>{formatCurrency(netIncome)}</span>
+                    </div>
+                </div>
+
+                {/* Full Transaction History / Ledger */}
+                <LedgerTable data={transactions} title="Full Financial Ledger (Transaction History)" />
+            </div>
+        );
+    };
+    
+    // --- My Transactions View ---
+    const MyTransactionsView = () => {
+        // Filter transactions where the memberId matches the current user's ID
+        const myTransactions = transactions.filter(txn => txn.memberId === userId);
+        const myLoans = loans.filter(l => l.memberId === userId);
+        
+        const memberBalance = totalBalances.members[userId] || 0;
+        const memberShares = calculateMemberShares(userId);
+
+
+        return (
+            <div className="p-4 md:p-6 bg-white rounded-xl shadow-xl">
+                <h2 className="text-2xl md:text-3xl font-bold mb-6 text-indigo-800 border-b pb-3 flex items-center space-x-2">
+                    <ListChecks size={28} />
+                    <span>My Financial History & Status</span>
+                </h2>
+                
+                {/* Member Summary */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                    <div className="p-4 bg-indigo-50 rounded-lg shadow-sm border border-indigo-200">
+                        <p className="text-sm text-gray-500">My Current Balance</p>
+                        <p className="text-2xl font-bold text-indigo-700">{formatCurrency(memberBalance)}</p>
+                    </div>
+                    <div className="p-4 bg-sky-50 rounded-lg shadow-sm border border-sky-200">
+                        <p className="text-sm text-gray-500">My Shares</p>
+                        <p className="text-2xl font-bold text-sky-700">{memberShares.toLocaleString()} shares</p>
+                    </div>
+                    <div className="p-4 bg-yellow-50 rounded-lg shadow-sm border border-yellow-200">
+                        <p className="text-sm text-gray-500">Active Loans</p>
+                        <p className="text-2xl font-bold text-yellow-700">{myLoans.filter(l => l.status === 'Disbursed').length}</p>
+                    </div>
+                </div>
+
+                <h3 className="text-xl font-semibold mt-8 mb-4 border-b pb-2 text-indigo-700">My Transactions</h3>
+                {myTransactions.length === 0 ? (
+                    <div className="p-10 text-center text-gray-500 border-2 border-dashed rounded-xl">
+                        <p className="text-lg font-semibold mb-2">No Transactions Yet</p>
+                        <p>Your contributions and other financial activities will appear here.</p>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {myTransactions.map((txn) => {
+                                    const isCredit = [
+                                        TransactionTypes.REGISTRATION_FEE, 
+                                        TransactionTypes.SAVINGS, 
+                                        TransactionTypes.FIXED_DEPOSIT, 
+                                        TransactionTypes.LOAN_REPAYMENT,
+                                        TransactionTypes.INTEREST_LOANER_CREDENCE 
+                                    ].includes(txn.type) || txn.amount > 0;
+                                    
+                                    const date = txn.timestamp?.seconds ? new Date(txn.timestamp.seconds * 1000).toLocaleDateString() : 'N/A';
+                                    
+                                    return (
+                                        <tr key={txn.id} className="hover:bg-indigo-50 transition-colors">
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{date}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{txn.type}</td>
+                                            <td className="px-6 py-4 whitespace-normal text-sm text-gray-600 max-w-xs">{txn.description}</td>
+                                            <td className={`px-6 py-4 whitespace-nowrap text-right font-bold text-sm ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+                                                <div className="flex items-center justify-end space-x-1">
+                                                    {isCredit ? <ArrowUpCircle size={14} className="min-w-fit" /> : <ArrowDownCircle size={14} className="min-w-fit" />}
+                                                    <span>{formatCurrency(Math.abs(txn.amount))}</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // --- Main Dashboard View ---
+    const Dashboard = () => {
+        const userProfile = users.find(u => u.id === userId);
+        const memberBalance = totalBalances.members[userId] || 0;
+        const memberShares = calculateMemberShares(userId);
+        
+        const StatPill = ({ title, value, color }) => (
+            <div className={`p-4 bg-${color}-50 border-l-4 border-${color}-500 rounded-lg shadow-md`}>
+                <p className="text-sm text-gray-500">{title}</p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+            </div>
+        );
+
+        return (
+            <div className="p-4 md:p-6">
+                <h1 className="text-3xl font-extrabold text-gray-900 mb-8">Welcome, {userProfile?.firstName || userRole}!</h1>
+                
+                {isMember && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-10">
+                        <StatPill title="Your Account Balance" value={formatCurrency(memberBalance)} color="indigo" />
+                        <StatPill title="Your Shares" value={`${memberShares} shares`} color="sky" />
+                        <StatPill title="Active Loan Status" value={loans.filter(l => l.memberId === userId && (l.status === 'Requested' || l.status === 'Processing' || l.status === 'Disbursed')).length > 0 ? 'Active/Pending' : 'None'} color="yellow" />
+                        <StatPill title="Total Assets" value={formatCurrency(totalBalances.totalCashBalance)} color="green" />
+                    </div>
+                )}
+
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Column 1: Admin/Superadmin Tools */}
+                    <div className="lg:col-span-1 space-y-8">
+                        {(isAdmin) && <MemberRegistrationForm />}
+                        {(isAdmin) && (
+                            <>
+                                <GeneralForm type={TransactionTypes.SAVINGS} memberRequired={true} isCredit={true} />
+                                <GeneralForm type={TransactionTypes.FIXED_DEPOSIT} memberRequired={true} isCredit={true} />
+                            </>
+                        )}
+                        {(isSuper) && <GeneralForm type={TransactionTypes.ADJUSTMENT} isAdjustment={true} isCredit={true} />}
+                    </div>
+
+                    {/* Column 2: Loan Management & General Ledger */}
+                    <div className="lg:col-span-1 space-y-8">
+                        {(isAdmin) && <LoanManagement />}
+                        {(isAdmin) && <GeneralForm type={TransactionTypes.INCOME} isCredit={true} />}
+                        {(isAdmin) && <GeneralForm type={TransactionTypes.EXPENDITURE} isCredit={false} />}
+                        {(isMember && userRole === 'Member') && <LoanRequestForm />}
+                    </div>
+
+                    {/* Column 3: Member Tools & History */}
+                    <div className="lg:col-span-1 space-y-8">
+                        {(isMember && userRole === 'Member') && <InquiryPortal />}
+                         
+                        <div className="p-4 bg-gray-100 rounded-xl shadow-inner max-h-[80vh] overflow-y-auto">
+                            <h2 className="text-2xl font-bold text-indigo-800 mb-4 border-b pb-2">Latest Transactions (Ledger)</h2>
+                            <ul className="space-y-3">
+                                {transactions.slice(0, 20).map(txn => (
+                                    <li key={txn.id} className="p-3 bg-white rounded-lg shadow-sm border-l-4 border-indigo-400 text-sm hover:bg-gray-50 transition-colors">
+                                        <div className="flex justify-between items-center">
+                                            <p className="font-semibold text-gray-800">{txn.type}</p>
+                                            <span className={`font-bold ${txn.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(txn.amount)}</span>
+                                        </div>
+                                        {txn.memberId && <p className="text-xs text-gray-500 mt-1">Member: {users.find(u => u.id === txn.memberId)?.firstName || txn.memberId}</p>}
+                                        <p className="text-xs text-gray-400 mt-1">{new Date(txn.timestamp?.seconds * 1000).toLocaleString()}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // --- Main Render ---
+    if (!isAuthReady) {
+        return <Loading />;
+    }
+    
+    // Guest role only sees a sign-in message
+    if (userRole === 'Guest') {
+        return (
+            <div className="flex items-center justify-center h-screen bg-gray-100">
+                <div className="p-10 bg-white rounded-xl shadow-2xl text-center max-w-sm">
+                    <h2 className="text-3xl font-bold text-red-700 mb-4">Access Restricted</h2>
+                    <p className="mt-4 text-gray-600">This is a secured financial system. Please wait for the system to assign you a role (Member, Admin, or Superadmin) to proceed.</p>
+                </div>
+            </div>
+        );
+    }
+    
+    // Authorized App Layout
+    return (
+        <div className="min-h-screen bg-gray-50 font-sans antialiased">
+            <NotificationToast />
+            <header className="bg-white shadow-lg sticky top-0 z-20">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center py-4">
+                    <h1 className="text-2xl font-extrabold text-indigo-900 mb-3 md:mb-0">Destiny Investment Corp.</h1>
+                    <nav className="flex flex-wrap justify-center items-center gap-4">
+                        <button onClick={() => setView('Dashboard')} className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${view === 'Dashboard' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-indigo-50'}`}>Dashboard</button>
+                        {isMember && (
+                            <button onClick={() => setView('MyTransactions')} className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${view === 'MyTransactions' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-indigo-50'}`}>My Transactions</button>
+                        )}
+                        {(isAdmin) && (
+                            <button onClick={() => setView('Reports')} className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${view === 'Reports' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-700 hover:bg-indigo-50'}`}>Reports & Ledger</button>
+                        )}
+                        <RoleSelector />
+                    </nav>
+                </div>
+            </header>
+
+            <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+                {view === 'Dashboard' && <Dashboard />}
+                {view === 'MyTransactions' && isMember && <MyTransactionsView />}
+                {view === 'Reports' && (isAdmin) && <ReportsView />}
+            </main>
+        </div>
+    );
+};
+
+export default App;
