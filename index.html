@@ -17,18 +17,292 @@
         .header-shadow {
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
         }
-        /* Custom class to hide elements */
         .hidden-view {
             display: none;
         }
-        /* Custom button styling for active state visibility */
         .app-button {
             transition: all 0.2s ease;
             cursor: pointer;
         }
     </style>
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, runTransaction, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // IMPORTANT: Global variables must be attached to window for scope sharing
+        window.firebase = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
+            getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, runTransaction, 
+            createUserWithEmailAndPassword, signInWithEmailAndPassword, setLogLevel
+        };
+
+        // Suppress console logging until needed
+        window.firebase.setLogLevel('silent'); 
+    </script>
 </head>
 <body>
+    
+    <!-- Global App State -->
+    <script>
+        // === GLOBAL STATE VARIABLES ===
+        let currentView = 'loading';
+        let isAuthReady = false;
+        let userId = null;
+        let userRole = 'Guest'; // Initial state before login
+
+        // Firebase Instances
+        let app, auth, db;
+        
+        // Firestore path for public data: /artifacts/{appId}/public/data/{collectionName}
+        const USER_ROLES_COLLECTION = 'user_roles';
+
+        // References to the main view containers
+        const views = {}; 
+
+        // === VIEW MANAGEMENT ===
+
+        /**
+         * Switches the application view based on the provided view name.
+         * @param {string} viewName The name of the view to show ('loading', 'landing', 'login', 'dashboard').
+         */
+        function navigateTo(viewName) {
+            currentView = viewName;
+            
+            // Hide all views, then show the requested one
+            Object.values(views).forEach(view => {
+                if (view) view.classList.add('hidden-view');
+            });
+            if (views[viewName]) views[viewName].classList.remove('hidden-view');
+
+            // Toggle visibility of landing-specific elements if needed
+            const navLinks = document.getElementById('landingNavLinks');
+            if (navLinks) {
+                if (viewName === 'landing') {
+                    navLinks.classList.remove('hidden');
+                } else {
+                    navLinks.classList.add('hidden');
+                }
+            }
+
+            // Update header text to show current role
+            const roleDisplay = document.getElementById('userRoleDisplay');
+            if (roleDisplay) {
+                 roleDisplay.textContent = `Role: ${userRole} | ID: ${userId ? userId.substring(0, 8) + '...' : 'N/A'}`;
+            }
+
+            console.log(`Navigation successful. Current View: ${currentView} | Role: ${userRole}`);
+        }
+
+        // === FIREBASE INITIALIZATION AND AUTHENTICATION ===
+
+        async function initFirebaseAndAuth() {
+            try {
+                // 1. Get configuration
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+                // 2. Initialize App and Services
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.getAuth(app);
+                db = firebase.getFirestore(app);
+
+                // Set Firestore logging to Debug (optional, but good practice for debugging)
+                // firebase.setLogLevel('debug'); 
+
+                // 3. Authenticate
+                if (initialAuthToken) {
+                    await firebase.signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await firebase.signInAnonymously(auth);
+                }
+
+                // 4. State Update on Auth Change (Crucial for getting the UID)
+                firebase.onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        await fetchUserRole(userId);
+                        isAuthReady = true;
+                        // If we are still in loading, move to landing page
+                        if (currentView === 'loading') {
+                            navigateTo('landing');
+                        }
+                    } else {
+                        userId = null;
+                        userRole = 'Guest';
+                        isAuthReady = true;
+                        navigateTo('landing'); // Should still show landing page even if unauthenticated
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization Failed:", error);
+                // Fallback to landing page with guest role if initialization fails
+                userRole = 'Guest';
+                isAuthReady = true;
+                navigateTo('landing');
+            }
+        }
+
+        /**
+         * Fetches the user's role from Firestore.
+         * @param {string} uid The Firebase User ID.
+         */
+        async function fetchUserRole(uid) {
+            if (!db || !uid) return;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const roleDocRef = firebase.doc(db, `artifacts/${appId}/public/data/${USER_ROLES_COLLECTION}`, uid);
+            try {
+                const docSnap = await firebase.getDoc(roleDocRef);
+                if (docSnap.exists()) {
+                    userRole = docSnap.data().role || 'User';
+                } else {
+                    // Role not set yet, remains 'Guest' until registration attempt
+                    userRole = 'Guest';
+                }
+            } catch (e) {
+                console.error("Error fetching user role:", e);
+                userRole = 'Guest';
+            }
+        }
+
+        /**
+         * Handles the login/registration process. The first user gets SuperAdmin role.
+         * Note: Since we are using an anonymous/custom token, we skip email/password creation 
+         * and focus on role assignment on the first 'login' attempt.
+         */
+        async function handleLoginOrRegister(e) {
+            e.preventDefault();
+            if (!isAuthReady || !userId) {
+                // Should not happen if auth is correctly awaited, but good defensive programming
+                console.error("Authentication not ready. Cannot register/login.");
+                return;
+            }
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value; // Currently unused in this simplified flow
+
+            const loginButton = document.getElementById('loginSubmitButton');
+            loginButton.disabled = true;
+            loginButton.textContent = 'Processing...';
+
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const rolesCollectionRef = firebase.collection(db, `artifacts/${appId}/public/data/${USER_ROLES_COLLECTION}`);
+
+                let assignedRole = 'User'; // Default role
+
+                await firebase.runTransaction(db, async (transaction) => {
+                    // 1. Check if a SuperAdmin already exists by querying for role: 'SuperAdmin'
+                    const q = firebase.query(rolesCollectionRef, firebase.where("role", "==", "SuperAdmin"));
+                    const querySnapshot = await firebase.getDocs(q);
+
+                    if (querySnapshot.empty) {
+                        // NO SuperAdmin exists. This user is the first.
+                        assignedRole = 'SuperAdmin';
+                    } else {
+                        // SuperAdmin exists. Check if this user already has a role.
+                        const userDocRef = firebase.doc(rolesCollectionRef, userId);
+                        const userDoc = await transaction.get(userDocRef);
+                        
+                        if (userDoc.exists()) {
+                            // User already registered, use existing role
+                            assignedRole = userDoc.data().role;
+                        } else {
+                            // New user, but SuperAdmin exists, assign default 'User'
+                            assignedRole = 'User';
+                        }
+                    }
+
+                    // 2. Set the user's final role
+                    const userRoleDocRef = firebase.doc(rolesCollectionRef, userId);
+                    transaction.set(userRoleDocRef, { 
+                        uid: userId, 
+                        username: username, 
+                        role: assignedRole,
+                        registeredAt: new Date().toISOString()
+                    }, { merge: true });
+                });
+
+                userRole = assignedRole;
+                console.log(`User logged in/registered successfully. Assigned Role: ${userRole}`);
+                navigateTo('dashboard'); // Always go to dashboard after successful process
+
+            } catch (e) {
+                console.error("Login/Registration failed:", e);
+                alertBox('Login Failed. See console for details.');
+            } finally {
+                loginButton.disabled = false;
+                loginButton.textContent = 'Secure Login';
+            }
+        }
+
+        // === DOM CONTENT AND BINDING ===
+        document.addEventListener('DOMContentLoaded', () => {
+            // Populate views map
+            views.loading = document.getElementById('loadingView');
+            views.landing = document.getElementById('landingView');
+            views.login = document.getElementById('loginView');
+            views.dashboard = document.getElementById('dashboardView');
+            
+            // Start the Firebase initialization
+            initFirebaseAndAuth();
+
+            // Bind handlers
+            const launchDashboardButton = document.getElementById('launchDashboardButton');
+            const signInButtonNav = document.getElementById('signInButtonNav');
+            const loginForm = document.getElementById('loginForm');
+            
+            if (launchDashboardButton) {
+                launchDashboardButton.addEventListener('click', () => {
+                    // If authenticated but not registered, go to login. If registered, go to dashboard.
+                    if (userId && userRole !== 'Guest') {
+                        navigateTo('dashboard');
+                    } else {
+                        navigateTo('login');
+                    }
+                });
+            }
+
+            if (signInButtonNav) {
+                signInButtonNav.addEventListener('click', () => {
+                    navigateTo('login');
+                });
+            }
+
+            if (loginForm) {
+                loginForm.addEventListener('submit', handleLoginOrRegister);
+            }
+
+            // Bind navigation links (for landing page anchors)
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    // Allow anchor links to work, but ensure we are on the landing view first
+                    if (currentView !== 'landing') {
+                        navigateTo('landing');
+                    }
+                });
+            });
+
+            // Bind back buttons
+            document.querySelectorAll('[data-navigate]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    navigateTo(btn.getAttribute('data-navigate'));
+                });
+            });
+
+            // Helper for simple alerts (since window.alert is disallowed)
+            window.alertBox = (message) => {
+                const box = document.createElement('div');
+                box.textContent = message;
+                box.className = 'fixed top-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-xl z-[10000]';
+                document.body.appendChild(box);
+                setTimeout(() => box.remove(), 4000);
+            };
+        });
+    </script>
 
     <!-- Header / Navigation -->
     <header class="sticky top-0 z-50 bg-white border-b border-gray-100 header-shadow">
@@ -36,7 +310,12 @@
             <div class="text-3xl font-extrabold text-gray-900 cursor-pointer" onclick="navigateTo('landing')">
                 Destiny <span class="text-sky-700">Finance</span>
             </div>
-            <!-- Navigation Links (Only visible on landing page) -->
+            
+            <div id="userRoleDisplay" class="text-sm font-medium text-gray-500 hidden sm:block">
+                Role: Guest | ID: N/A
+            </div>
+            
+            <!-- Navigation Links (Hidden when not on landing page) -->
             <div id="landingNavLinks" class="space-x-4 hidden sm:flex">
                 <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Core Modules</a>
                 <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Audit & Compliance</a>
@@ -48,8 +327,19 @@
         </nav>
     </header>
 
-    <!-- 1. LANDING PAGE VIEW -->
-    <div id="landingView">
+    <!-- 1. LOADING VIEW (Initial State) -->
+    <div id="loadingView" class="py-40 min-h-[80vh] flex items-center justify-center">
+        <div class="text-center">
+            <svg class="animate-spin h-10 w-10 text-sky-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="mt-4 text-xl text-gray-600">Initializing Secure Connection...</p>
+        </div>
+    </div>
+
+    <!-- 2. LANDING PAGE VIEW -->
+    <div id="landingView" class="hidden-view">
         <main class="py-16 md:py-24">
             <!-- Hero Section -->
             <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
@@ -64,7 +354,7 @@
                         The secure, unified platform for all financial management, reporting, and compliance activities.
                     </p>
                     <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
-                        <!-- LAUNCH BUTTON -->
+                        <!-- LAUNCH BUTTON - Redirects to login/dashboard based on state -->
                         <button id="launchDashboardButton" class="app-button inline-flex items-center justify-center px-10 py-4 border border-transparent text-lg font-bold rounded-xl shadow-xl text-white bg-sky-700 
                                 transition duration-300 transform 
                                 hover:bg-sky-800 hover:scale-105 active:scale-90">
@@ -77,7 +367,7 @@
                 </div>
             </section>
 
-            <!-- Features Section (Target for #features anchor) -->
+            <!-- Features Section -->
             <section id="features" class="bg-white py-16 md:py-20 border-t border-gray-100">
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="text-center mb-16">
@@ -109,7 +399,7 @@
                 </div>
             </section>
 
-            <!-- Reporting Section (Target for #reporting anchor) -->
+            <!-- Reporting Section -->
             <section id="reporting" class="py-16 md:py-20 border-t border-gray-100 bg-gray-50">
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                     <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
@@ -123,17 +413,47 @@
         </main>
     </div> <!-- End landingView -->
 
-    <!-- 2. DASHBOARD VIEW (Initially Hidden) -->
+    <!-- 3. LOGIN/REGISTRATION VIEW -->
+    <div id="loginView" class="hidden-view py-20 min-h-[80vh] flex items-start justify-center">
+        <div class="bg-white p-8 sm:p-12 rounded-xl shadow-2xl border-t-4 border-sky-600 w-full max-w-md">
+            <h2 class="text-3xl font-bold text-sky-700 mb-2 text-center">
+                Secure Access
+            </h2>
+            <p id="adminStatusMsg" class="text-center text-sm mb-6 text-orange-600 font-medium">
+                Please enter a Username to register and assign your role.
+            </p>
+            <form id="loginForm">
+                <div class="mb-4">
+                    <label for="username" class="block text-gray-700 text-sm font-medium mb-2">System Username</label>
+                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="e.g., JSmith" required>
+                </div>
+                <div class="mb-6">
+                    <label for="password" class="block text-gray-700 text-sm font-medium mb-2">Password (Simulated)</label>
+                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Any value will work for now" required>
+                </div>
+                <button id="loginSubmitButton" type="submit" class="app-button w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-lg font-bold rounded-xl shadow-lg text-white bg-sky-700 
+                        transition duration-300 transform 
+                        hover:bg-sky-800 active:scale-95">
+                    Secure Login
+                </button>
+            </form>
+            <button data-navigate="landing" class="app-button mt-6 w-full text-center text-sm text-gray-500 hover:text-sky-700 transition duration-150 active:scale-95">
+                Cancel / Return to Gateway
+            </button>
+        </div>
+    </div> <!-- End loginView -->
+
+    <!-- 4. DASHBOARD VIEW -->
     <div id="dashboardView" class="hidden-view py-20 min-h-[80vh]">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h2 class="text-5xl font-extrabold text-sky-700 mb-6">
-                Welcome to the Secure Dashboard
+                Welcome, <span class="capitalize" id="dashboardRoleDisplay">{{userRole}}</span>!
             </h2>
             <p class="text-xl text-gray-600 mb-10">
-                This is the simulated environment for real-time financial monitoring and task management.
+                You are currently logged in with the **<span class="font-bold text-lg text-red-600">{{userRole}}</span>** role.
             </p>
             <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-sky-600 max-w-4xl mx-auto">
-                <p class="text-2xl font-semibold text-gray-800 mb-4">Current System Status</p>
+                <p class="text-2xl font-semibold text-gray-800 mb-4">Dashboard Access Panel</p>
                 <div class="flex justify-around items-center py-4 text-left">
                     <div class="text-gray-600">
                         <p class="text-4xl font-bold text-green-600">ONLINE</p>
@@ -144,42 +464,19 @@
                         <p class="text-sm uppercase tracking-wider">Daily Trade Volume</p>
                     </div>
                 </div>
+                <div class="mt-8 p-4 bg-yellow-50 rounded-lg text-left border-l-4 border-yellow-500" id="adminControlPanel">
+                    <!-- Admin specific message -->
+                    <p class="font-bold text-yellow-800">Administrator Notice:</p>
+                    <p class="text-sm text-yellow-700">As a SuperAdmin, you have full control over user provisioning and security settings. This panel would typically contain system management links.</p>
+                </div>
             </div>
-            <button onclick="navigateTo('landing')" class="app-button mt-12 inline-flex items-center px-6 py-3 border border-gray-300 text-lg font-medium rounded-xl text-gray-700 bg-white shadow-md hover:bg-gray-50 transition duration-300 active:scale-95">
-                ← Back to Gateway
+            <button data-navigate="landing" class="app-button mt-12 inline-flex items-center px-6 py-3 border border-gray-300 text-lg font-medium rounded-xl text-gray-700 bg-white shadow-md hover:bg-gray-50 transition duration-300 active:scale-95">
+                ← Logout & Return to Gateway
             </button>
         </div>
     </div> <!-- End dashboardView -->
 
-    <!-- 3. SIGN IN VIEW (Initially Hidden) -->
-    <div id="signInView" class="hidden-view py-20 min-h-[80vh] flex items-start justify-center">
-        <div class="bg-white p-8 sm:p-12 rounded-xl shadow-2xl border-t-4 border-sky-600 w-full max-w-md">
-            <h2 class="text-3xl font-bold text-sky-700 mb-6 text-center">
-                Sign In to Destiny Finance
-            </h2>
-            <form onsubmit="event.preventDefault(); navigateTo('dashboard');">
-                <div class="mb-4">
-                    <label for="username" class="block text-gray-700 text-sm font-medium mb-2">Username</label>
-                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Enter your system ID" required>
-                </div>
-                <div class="mb-6">
-                    <label for="password" class="block text-gray-700 text-sm font-medium mb-2">Password</label>
-                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Enter password" required>
-                </div>
-                <button type="submit" class="app-button w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-lg font-bold rounded-xl shadow-lg text-white bg-sky-700 
-                        transition duration-300 transform 
-                        hover:bg-sky-800 active:scale-95">
-                    Secure Login
-                </button>
-            </form>
-            <button onclick="navigateTo('landing')" class="app-button mt-6 w-full text-center text-sm text-gray-500 hover:text-sky-700 transition duration-150 active:scale-95">
-                Cancel / Return to Gateway
-            </button>
-        </div>
-    </div> <!-- End signInView -->
-
-
-    <!-- Footer (Will be present on all pages) -->
+    <!-- Footer -->
     <footer class="bg-gray-900 text-white py-10 mt-auto">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div class="mb-4">
@@ -191,86 +488,5 @@
         </div>
     </footer>
 
-    <!-- JavaScript for Interactivity and View Management -->
-    <script>
-        // Global variable to track the current view
-        let currentView = 'landing';
-        
-        // References to the main view containers
-        const views = {
-            landing: document.getElementById('landingView'),
-            dashboard: document.getElementById('dashboardView'),
-            signIn: document.getElementById('signInView'),
-        };
-
-        /**
-         * Switches the application view based on the provided view name.
-         * @param {string} viewName The name of the view to show ('landing', 'dashboard', 'signIn').
-         */
-        function navigateTo(viewName) {
-            // Validate the view name
-            if (!views[viewName]) {
-                console.error(`Attempted to navigate to unknown view: ${viewName}`);
-                return;
-            }
-
-            currentView = viewName;
-            
-            // Hide all views, then show the requested one
-            Object.values(views).forEach(view => {
-                view.classList.add('hidden-view');
-            });
-            views[viewName].classList.remove('hidden-view');
-
-            // Toggle visibility of specific landing page elements
-            const navLinks = document.getElementById('landingNavLinks');
-            const footer = document.querySelector('footer');
-            
-            if (viewName === 'landing') {
-                navLinks.classList.remove('hidden');
-                // Ensure anchor links work when returning to landing page
-                document.documentElement.scrollTop = 0; 
-                document.body.scrollTop = 0;
-            } else {
-                // Hide navigation links on dashboard/sign-in pages
-                navLinks.classList.add('hidden');
-            }
-
-            console.log(`Navigation successful. Current View: ${currentView}`);
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            // 1. Initial navigation setup (default to landing)
-            navigateTo('landing');
-
-            // 2. Attach handlers to the primary action buttons
-            const launchDashboardButton = document.getElementById('launchDashboardButton');
-            const signInButtonNav = document.getElementById('signInButtonNav');
-
-            if (launchDashboardButton) {
-                launchDashboardButton.addEventListener('click', () => {
-                    navigateTo('dashboard');
-                });
-            }
-
-            if (signInButtonNav) {
-                signInButtonNav.addEventListener('click', () => {
-                    navigateTo('signIn');
-                });
-            }
-
-            // 3. Attach handlers to all internal navigation links (only on landing page)
-            document.querySelectorAll('#landingView .nav-link').forEach(link => {
-                const href = link.getAttribute('href');
-                
-                if (href && href.startsWith('#') && href.length > 1) {
-                    link.addEventListener('click', (e) => {
-                        // Let CSS handle smooth scroll, just ensure we are on the landing view
-                        navigateTo('landing');
-                    });
-                } 
-            });
-            
-            console.log("Interactive scripts loaded and view management initialized.");
-        });
-    </script>
+</body>
+</html>
