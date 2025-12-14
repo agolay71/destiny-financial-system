@@ -3,36 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Deployed GitHub Page</title>
-    <!-- Load Tailwind CSS for styling -->
+    <title>Project Nexus Landing Page</title>
+    <!-- Load Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Inter Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        /* Custom Font Setup (Inter) */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #f3f4f6; /* Light gray background */
+            background-color: #f7f9fc;
         }
     </style>
 </head>
-<body>
-    <!-- Main Container -->
-    <div class="bg-white p-8 md:p-12 rounded-xl shadow-2xl max-w-lg w-full text-center border-t-4 border-indigo-600">
-        <h1 class="text-3xl font-bold text-gray-800 mb-4">🎉 Success! 🎉</h1>
-        <p class="text-xl text-indigo-600 mb-6">
-            Your GitHub Pages site is live.
-        </p>
-        <p class="text-gray-600 mb-8">
-            The deployment workflow is fully functional. This is your default landing page.
-        </p>
-        <a href="#" class="inline-block px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition duration-300 transform hover:scale-105">
-            Start Building
-        </a>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-4xl w-full bg-white shadow-2xl rounded-xl overflow-hidden md:flex">
+
+        <!-- Left Content Section -->
+        <div class="md:w-1/2 p-8 md:p-10 flex flex-col justify-center text-center md:text-left">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-4">
+                Project <span class="text-indigo-600">Nexus</span>
+            </h1>
+            <p class="text-xl text-gray-600 mb-8">
+                The future of collaborative development is here. Build, deploy, and scale with unparalleled ease.
+            </p>
+            <div class="space-y-4 md:space-y-0 md:space-x-4 flex flex-col md:flex-row">
+                <a href="#" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-lg shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 transition duration-300 transform hover:scale-[1.02]">
+                    Get Started Free
+                </a>
+                <a href="#" class="inline-flex items-center justify-center px-6 py-3 text-base font-medium rounded-lg text-indigo-600 bg-indigo-100 hover:bg-indigo-200 transition duration-300">
+                    View Documentation
+                </a>
+            </div>
+        </div>
+
+        <!-- Right Visual Section -->
+        <div class="md:w-1/2 bg-indigo-50 p-8 md:p-10 flex items-center justify-center">
+            <div class="text-center">
+                <!-- Simple SVG icon for visual appeal (Lucide Icon: Layout Grid) -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500 mx-auto mb-4">
+                    <rect width="7" height="7" x="3" y="3" rx="1" />
+                    <rect width="7" height="7" x="14" y="3" rx="1" />
+                    <rect width="7" height="7" x="14" y="14" rx="1" />
+                    <rect width="7" height="7" x="3" y="14" rx="1" />
+                </svg>
+                <p class="text-lg text-indigo-800 font-semibold">
+                    Simplified Architecture. Infinite Possibilities.
+                </p>
+                <p class="text-sm text-indigo-500 mt-1">
+                    Fully responsive design using Tailwind CSS.
+                </p>
+            </div>
+        </div>
+
     </div>
 
+    <!-- Footer for mobile view spacing -->
+    <footer class="absolute bottom-0 w-full text-center p-4 text-sm text-gray-500">
+        &copy; 2025 Project Nexus. All rights reserved.
+    </footer>
 </body>
 </html>
