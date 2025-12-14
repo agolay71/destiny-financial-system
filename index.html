@@ -3,543 +3,184 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DESTINY INVESTMENT CORPORATION - Financial System</title>
-    <!-- Load Tailwind CSS CDN -->
+    <title>Firebase Connection Status</title>
+    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom Font Setup (Inter) */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f7f9fc;
-            scroll-behavior: smooth;
+            background-color: #f7f9fb;
         }
-        .header-shadow {
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+        .status-dot {
+            width: 1rem;
+            height: 1rem;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            animation: pulse 1.5s infinite;
         }
-        .hidden-view {
-            display: none;
+        .status-dot.success {
+            background-color: #10b981; /* Emerald 500 */
+            animation: none;
         }
-        .app-button {
-            transition: all 0.2s ease;
-            cursor: pointer;
+        .status-dot.error {
+            background-color: #ef4444; /* Red 500 */
+            animation: none;
+        }
+        .status-dot.loading {
+            background-color: #3b82f6; /* Blue 500 */
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
     </style>
-    <!-- Firebase Imports -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, runTransaction, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // IMPORTANT: Global variables must be attached to window for scope sharing
-        window.firebase = {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
-            getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, runTransaction, 
-            createUserWithEmailAndPassword, signInWithEmailAndPassword, setLogLevel
-        };
-
-        // Suppress console logging until needed
-        window.firebase.setLogLevel('silent'); 
-    </script>
 </head>
-<body>
-    
-    <!-- Global App State -->
-    <script>
-        // === GLOBAL STATE VARIABLES ===
-        let currentView = 'loading';
-        let isAuthReady = false;
-        let userId = null;
-        let userRole = 'Guest'; // Initial state before login or role fetch
+<body class="p-4 md:p-8 min-h-screen flex items-center justify-center">
 
-        // Firebase Instances
-        let app, auth, db;
-        
-        // Firestore path for public data: /artifacts/{appId}/public/data/{collectionName}
-        const USER_ROLES_COLLECTION = 'user_roles';
+    <div id="connection-card" class="bg-white p-6 md:p-10 rounded-xl shadow-2xl w-full max-w-lg transition-all duration-300">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+            <svg class="w-8 h-8 text-indigo-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+            Live Connection Check
+        </h1>
 
-        // References to the main view containers
-        const views = {}; 
-        let loadingStatusElement; // Reference to the loading message element
-
-        // === UTILITIES ===
-
-        /**
-         * Updates the status message on the loading screen.
-         * @param {string} message The message to display.
-         */
-        function updateLoadingStatus(message) {
-            if (loadingStatusElement) {
-                loadingStatusElement.textContent = message;
-                console.log(`Loading Status: ${message}`);
-            }
-        }
-
-        /**
-         * Switches the application view based on the provided view name.
-         * @param {string} viewName The name of the view to show ('loading', 'landing', 'login', 'dashboard').
-         */
-        function navigateTo(viewName) {
-            currentView = viewName;
-            
-            // Hide all views, then show the requested one
-            Object.values(views).forEach(view => {
-                if (view) view.classList.add('hidden-view');
-            });
-            if (views[viewName]) views[viewName].classList.remove('hidden-view');
-
-            // Toggle visibility of landing-specific elements if needed
-            const navLinks = document.getElementById('landingNavLinks');
-            if (navLinks) {
-                if (viewName === 'landing') {
-                    navLinks.classList.remove('hidden');
-                    // Reset scroll to top when navigating to landing anchors
-                    document.documentElement.scrollTop = 0; 
-                    document.body.scrollTop = 0;
-                } else {
-                    navLinks.classList.add('hidden');
-                }
-            }
-
-            // Update header text to show current role
-            const roleDisplay = document.getElementById('userRoleDisplay');
-            if (roleDisplay) {
-                 roleDisplay.textContent = `Role: ${userRole} | ID: ${userId ? userId.substring(0, 8) + '...' : 'N/A'}`;
-            }
-
-            // Update dashboard text
-             const dashboardRoleDisplay = document.getElementById('dashboardRoleDisplay');
-             const adminControlPanel = document.getElementById('adminControlPanel');
-             if (viewName === 'dashboard' && dashboardRoleDisplay) {
-                dashboardRoleDisplay.textContent = userRole;
-                if (userRole === 'SuperAdmin') {
-                    adminControlPanel.classList.remove('hidden-view');
-                } else {
-                    adminControlPanel.classList.add('hidden-view');
-                }
-             }
-
-            console.log(`Navigation successful. Current View: ${currentView} | Role: ${userRole}`);
-        }
-        
-        /**
-         * Finalizes the initialization, sets the state, and navigates after a guaranteed delay.
-         * @param {string} role The final determined user role.
-         * @param {string|null} id The final determined user ID.
-         */
-        async function finalizeInitialization(role, id) {
-            userId = id;
-            userRole = role;
-            updateLoadingStatus(`Initialization complete. Proceeding as ${role}.`);
-            
-            // IMPORTANT: Add a guaranteed 500ms minimum wait time after final status update
-            // to ensure the status message is rendered and prevent perceived jank/hang.
-            await new Promise(resolve => setTimeout(resolve, 500)); 
-            
-            isAuthReady = true;
-            navigateTo('landing');
-        }
-
-
-        // === FIREBASE INITIALIZATION AND AUTHENTICATION ===
-
-        async function initFirebaseAndAuth() {
-            try {
-                updateLoadingStatus("Connecting to Firebase...");
-                
-                // 1. Get configuration
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-                // 2. Initialize App and Services
-                app = firebase.initializeApp(firebaseConfig);
-                auth = firebase.getAuth(app);
-                db = firebase.getFirestore(app);
-
-                // 3. Set up Auth State Listener (handles initial sign-in result)
-                let authChecked = false;
-                const unsubscribe = firebase.onAuthStateChanged(auth, async (user) => {
-                    if (authChecked) return; // Only process the first status change
-                    authChecked = true;
-                    // Unsubscribe immediately as we only care about the initial state
-                    if (unsubscribe) unsubscribe(); 
-
-                    let finalRole = 'Guest';
-                    let finalId = null;
-                    
-                    if (user) {
-                        finalId = user.uid;
-                        updateLoadingStatus(`Authenticated as UID: ${finalId.substring(0, 8)}... Fetching role...`);
-                        await fetchUserRole(finalId); // This updates the global userRole
-                        finalRole = userRole; // Use the globally updated role
-                    } else {
-                        updateLoadingStatus("Authentication completed as Guest.");
-                    }
-                    
-                    // Finalize initialization and navigate after delay
-                    await finalizeInitialization(finalRole, finalId);
-                });
-                
-                // 4. Perform Initial Authentication Attempt
-                updateLoadingStatus("Attempting custom token sign-in...");
-                if (initialAuthToken) {
-                    await firebase.signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    // This attempt will fire the onAuthStateChanged listener above
-                    await firebase.signInAnonymously(auth);
-                }
-
-            } catch (error) {
-                console.error("Firebase Initialization Failed:", error);
-                // If the error occurs before the auth listener fires, we handle the finalization here.
-                // Otherwise, the listener will handle it.
-                if (!authChecked) {
-                    await finalizeInitialization('Guest', null);
-                }
-            }
-        }
-
-        /**
-         * Fetches the user's role from Firestore.
-         * @param {string} uid The Firebase User ID.
-         */
-        async function fetchUserRole(uid) {
-            if (!db || !uid) return;
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const roleDocRef = firebase.doc(db, `artifacts/${appId}/public/data/${USER_ROLES_COLLECTION}`, uid);
-            try {
-                const docSnap = await firebase.getDoc(roleDocRef);
-                if (docSnap.exists()) {
-                    userRole = docSnap.data().role || 'User';
-                    updateLoadingStatus(`Role found: ${userRole}.`);
-                } else {
-                    userRole = 'Guest'; // Unregistered user
-                    updateLoadingStatus("User is unregistered.");
-                }
-            } catch (e) {
-                console.error("Error fetching user role:", e);
-                userRole = 'Guest';
-            }
-        }
-
-        /**
-         * Handles the login/registration process. The first user gets SuperAdmin role.
-         */
-        async function handleLoginOrRegister(e) {
-            e.preventDefault();
-
-            if (!isAuthReady || !userId) {
-                alertBox('Connection not ready. Please wait for initialization.');
-                return;
-            }
-
-            const username = document.getElementById('username').value;
-            // Password is not used for Firebase auth but is required for the form UI
-            
-            const loginButton = document.getElementById('loginSubmitButton');
-            loginButton.disabled = true;
-            loginButton.textContent = 'Processing...';
-
-            try {
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const rolesCollectionRef = firebase.collection(db, `artifacts/${appId}/public/data/${USER_ROLES_COLLECTION}`);
-
-                let assignedRole = 'User'; // Default role
-
-                await firebase.runTransaction(db, async (transaction) => {
-                    const userDocRef = firebase.doc(rolesCollectionRef, userId);
-                    const userDoc = await transaction.get(userDocRef);
-                    
-                    if (userDoc.exists()) {
-                        // User already registered, use existing role
-                        assignedRole = userDoc.data().role;
-                    } else {
-                        // NEW USER: Check if a SuperAdmin already exists
-                        const q = firebase.query(rolesCollectionRef, firebase.where("role", "==", "SuperAdmin"));
-                        const querySnapshot = await firebase.getDocs(q);
-
-                        if (querySnapshot.empty) {
-                            // NO SuperAdmin exists. This user is the first.
-                            assignedRole = 'SuperAdmin';
-                        } else {
-                            // SuperAdmin exists. Assign default 'User'.
-                            assignedRole = 'User';
-                        }
-                        
-                        // Set the new user's role
-                        transaction.set(userDocRef, { 
-                            uid: userId, 
-                            username: username, 
-                            role: assignedRole,
-                            registeredAt: new Date().toISOString()
-                        }, { merge: true });
-                    }
-                });
-
-                userRole = assignedRole;
-                console.log(`User logged in/registered successfully. Assigned Role: ${userRole}`);
-                navigateTo('dashboard'); // Always go to dashboard after successful process
-
-            } catch (e) {
-                console.error("Login/Registration failed:", e);
-                alertBox('Login Failed. See console for details.');
-            } finally {
-                loginButton.disabled = false;
-                loginButton.textContent = 'Secure Login';
-            }
-        }
-
-        // === DOM CONTENT AND BINDING ===
-        document.addEventListener('DOMContentLoaded', () => {
-            // Populate views map and loading status element
-            views.loading = document.getElementById('loadingView');
-            views.landing = document.getElementById('landingView');
-            views.login = document.getElementById('loginView');
-            views.dashboard = document.getElementById('dashboardView');
-            loadingStatusElement = document.getElementById('loadingStatus');
-
-            // Set initial view to loading
-            navigateTo('loading');
-
-            // Start the Firebase initialization
-            initFirebaseAndAuth();
-
-            // Bind handlers
-            const launchDashboardButton = document.getElementById('launchDashboardButton');
-            const signInButtonNav = document.getElementById('signInButtonNav');
-            const loginForm = document.getElementById('loginForm');
-            
-            if (launchDashboardButton) {
-                launchDashboardButton.addEventListener('click', () => {
-                    // If authenticated but not registered, go to login. If registered, go to dashboard.
-                    if (userRole !== 'Guest' && userRole !== 'User') { // Assumes 'User' or 'SuperAdmin' means registered
-                        navigateTo('dashboard');
-                    } else {
-                        navigateTo('login');
-                    }
-                });
-            }
-
-            if (signInButtonNav) {
-                signInButtonNav.addEventListener('click', () => {
-                    navigateTo('login');
-                });
-            }
-
-            if (loginForm) {
-                loginForm.addEventListener('submit', handleLoginOrRegister);
-            }
-
-            // Bind navigation links and back buttons
-            document.querySelectorAll('.nav-link').forEach(link => {
-                link.addEventListener('click', () => navigateTo('landing'));
-            });
-            
-            document.querySelectorAll('[data-navigate]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    // For the "Logout" button, reset role to 'Guest' for immediate redirect on next launch
-                    if (btn.getAttribute('data-navigate') === 'landing') {
-                         userRole = 'Guest'; 
-                    }
-                    navigateTo(btn.getAttribute('data-navigate'));
-                });
-            });
-
-            // Helper for simple alerts (since window.alert is disallowed)
-            window.alertBox = (message) => {
-                const box = document.createElement('div');
-                box.textContent = message;
-                box.className = 'fixed top-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-xl z-[10000]';
-                document.body.appendChild(box);
-                setTimeout(() => box.remove(), 4000);
-            };
-        });
-    </script>
-
-    <!-- Header / Navigation -->
-    <header class="sticky top-0 z-50 bg-white border-b border-gray-100 header-shadow">
-        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div class="text-3xl font-extrabold text-gray-900 cursor-pointer" onclick="navigateTo('landing')">
-                Destiny <span class="text-sky-700">Finance</span>
+        <div class="space-y-4">
+            <!-- Status Display -->
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <p class="text-sm font-medium text-gray-500 mb-1">Current Status</p>
+                <div id="status-display" class="flex items-center text-xl font-semibold text-gray-700">
+                    <div id="status-dot" class="status-dot loading"></div>
+                    <span id="status-message">Initializing...</span>
+                </div>
             </div>
-            
-            <div id="userRoleDisplay" class="text-sm font-medium text-gray-500 hidden sm:block">
-                Role: Guest | ID: N/A
-            </div>
-            
-            <!-- Navigation Links (Hidden when not on landing page) -->
-            <div id="landingNavLinks" class="space-x-4 hidden sm:flex">
-                <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Core Modules</a>
-                <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Audit & Compliance</a>
-                <button id="signInButtonNav" class="app-button text-white bg-sky-700 px-3 py-1.5 rounded-lg text-sm font-medium transition duration-150 shadow-md 
-                       hover:bg-sky-800 hover:scale-105 active:scale-90 transform">
-                    Sign In
-                </button>
-            </div>
-        </nav>
-    </header>
 
-    <!-- 1. LOADING VIEW (Initial State) -->
-    <div id="loadingView" class="py-40 min-h-[80vh] flex items-center justify-center">
-        <div class="text-center">
-            <svg class="animate-spin h-10 w-10 text-sky-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p id="loadingStatus" class="mt-4 text-xl text-gray-600">Initializing Secure Connection...</p>
+            <!-- Log History -->
+            <div class="bg-gray-800 text-gray-200 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs">
+                <p class="text-indigo-400 mb-2">--- Connection Timeline ---</p>
+                <div id="log-output"></div>
+            </div>
         </div>
     </div>
 
-    <!-- 2. LANDING PAGE VIEW -->
-    <div id="landingView" class="hidden-view">
-        <main class="py-16 md:py-24">
-            <!-- Hero Section -->
-            <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
-                <div class="max-w-3xl mx-auto">
-                    <span class="inline-block px-4 py-1.5 mb-4 text-xs font-bold uppercase tracking-widest text-sky-700 bg-sky-100 rounded-full shadow-inner">
-                        DESTINY INVESTMENT CORPORATION
-                    </span>
-                    <h1 class="text-6xl md:text-8xl font-extrabold text-gray-900 leading-tight mb-8">
-                        <span class="text-sky-700">Financial</span> System Gateway
-                    </h1>
-                    <p class="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
-                        The secure, unified platform for all financial management, reporting, and compliance activities.
-                    </p>
-                    <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
-                        <!-- LAUNCH BUTTON - Redirects to login/dashboard based on state -->
-                        <button id="launchDashboardButton" class="app-button inline-flex items-center justify-center px-10 py-4 border border-transparent text-lg font-bold rounded-xl shadow-xl text-white bg-sky-700 
-                                transition duration-300 transform 
-                                hover:bg-sky-800 hover:scale-105 active:scale-90">
-                            Launch Dashboard
-                        </button>
-                        <a href="#features" class="nav-link app-button inline-flex items-center justify-center px-10 py-4 text-lg font-medium rounded-xl text-gray-700 bg-white border border-gray-300 shadow-md hover:bg-gray-50 transition duration-300">
-                            Explore Features
-                        </a>
-                    </div>
-                </div>
-            </section>
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        // FIX: Added 'setDoc' to the import list from firebase-firestore
+        import { getFirestore, doc, getDoc, setDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-            <!-- Features Section -->
-            <section id="features" class="bg-white py-16 md:py-20 border-t border-gray-100">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="text-center mb-16">
-                        <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
-                            Enterprise-Grade Financial Modules
-                        </h2>
-                        <p class="mt-4 text-xl text-gray-600">
-                            Efficiency and precision built into every process.
-                        </p>
-                    </div>
+        // Enable debug logging for Firestore
+        setLogLevel('debug');
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-                        <div class="p-6 bg-sky-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-sky-600">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-700 mb-4"><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10Z" /></svg>
-                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Investment Portfolio</h3>
-                            <p class="text-gray-600">Comprehensive, real-time analytics across all asset classes and managed funds.</p>
-                        </div>
-                        <div class="p-6 bg-green-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-green-600">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-700 mb-4"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m9 11 3 3L22 4" /></svg>
-                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Regulatory Compliance</h3>
-                            <p class="text-gray-600">Automated audit trails and generation of mandatory financial disclosures (e.g., SEC).</p>
-                        </div>
-                        <div class="p-6 bg-purple-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-purple-600">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-purple-700 mb-4"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 3 0 0 0 21 12" /></svg>
-                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Centralized Data Ledger</h3>
-                            <p class="text-gray-600">A single source of truth for all transactional data, ensuring accuracy and security.</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
+        const logOutput = document.getElementById('log-output');
+        const statusMessage = document.getElementById('status-message');
+        const statusDot = document.getElementById('status-dot');
 
-            <!-- Reporting Section -->
-            <section id="reporting" class="py-16 md:py-20 border-t border-gray-100 bg-gray-50">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                    <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
-                        Audit & Compliance Reporting
-                    </h2>
-                    <p class="text-xl text-gray-600 max-w-2xl mx-auto">
-                        A dedicated module for generating comprehensive audit trails, regulatory reports, and internal compliance checks.
-                    </p>
-                </div>
-            </section>
-        </main>
-    </div> <!-- End landingView -->
+        /** Logs a message to the console and the UI timeline. */
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+            console.log(`[${timestamp}] ${message}`);
 
-    <!-- 3. LOGIN/REGISTRATION VIEW -->
-    <div id="loginView" class="hidden-view py-20 min-h-[80vh] flex items-start justify-center">
-        <div class="bg-white p-8 sm:p-12 rounded-xl shadow-2xl border-t-4 border-sky-600 w-full max-w-md">
-            <h2 class="text-3xl font-bold text-sky-700 mb-2 text-center">
-                Secure Access
-            </h2>
-            <p id="adminStatusMsg" class="text-center text-sm mb-6 text-orange-600 font-medium">
-                Please enter a Username to register and assign your role. The first registered user becomes the SuperAdmin.
-            </p>
-            <form id="loginForm">
-                <div class="mb-4">
-                    <label for="username" class="block text-gray-700 text-sm font-medium mb-2">System Username</label>
-                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="e.g., JSmith" required>
-                </div>
-                <div class="mb-6">
-                    <label for="password" class="block text-gray-700 text-sm font-medium mb-2">Password (Simulated)</label>
-                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Any value will work for now" required>
-                </div>
-                <button id="loginSubmitButton" type="submit" class="app-button w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-lg font-bold rounded-xl shadow-lg text-white bg-sky-700 
-                        transition duration-300 transform 
-                        hover:bg-sky-800 active:scale-95">
-                    Secure Login
-                </button>
-            </form>
-            <button data-navigate="landing" class="app-button mt-6 w-full text-center text-sm text-gray-500 hover:text-sky-700 transition duration-150 active:scale-95">
-                Cancel / Return to Gateway
-            </button>
-        </div>
-    </div> <!-- End loginView -->
+            const p = document.createElement('p');
+            p.textContent = `[${timestamp}] > ${message}`;
+            p.className = `py-0.5 ${type === 'error' ? 'text-red-400' : type === 'success' ? 'text-green-400' : 'text-gray-300'}`;
+            logOutput.appendChild(p);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
 
-    <!-- 4. DASHBOARD VIEW -->
-    <div id="dashboardView" class="hidden-view py-20 min-h-[80vh]">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 class="text-5xl font-extrabold text-sky-700 mb-6">
-                Welcome, <span class="capitalize" id="dashboardRoleDisplay"></span>!
-            </h2>
-            <p class="text-xl text-gray-600 mb-10">
-                You are currently logged in with the **<span class="font-bold text-lg text-red-600 capitalize">{{userRole}}</span>** role.
-            </p>
-            <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-sky-600 max-w-4xl mx-auto">
-                <p class="text-2xl font-semibold text-gray-800 mb-4">Dashboard Access Panel</p>
-                <div class="flex justify-around items-center py-4 text-left">
-                    <div class="text-gray-600">
-                        <p class="text-4xl font-bold text-green-600">ONLINE</p>
-                        <p class="text-sm uppercase tracking-wider">All Systems Operational</p>
-                    </div>
-                    <div class="text-gray-600">
-                        <p class="text-4xl font-bold text-gray-900">$14.5M</p>
-                        <p class="text-sm uppercase tracking-wider">Daily Transaction Volume</p>
-                    </div>
-                </div>
-                <div class="mt-8 p-4 bg-yellow-50 rounded-lg text-left border-l-4 border-yellow-500 hidden-view" id="adminControlPanel">
-                    <!-- Admin specific message -->
-                    <p class="font-bold text-yellow-800">SuperAdmin Control Notice:</p>
-                    <p class="text-sm text-yellow-700">You have successfully been designated as the system's SuperAdmin. This role grants full control over user provisioning and security settings.</p>
-                </div>
-            </div>
-            <button data-navigate="landing" class="app-button mt-12 inline-flex items-center px-6 py-3 border border-gray-300 text-lg font-medium rounded-xl text-gray-700 bg-white shadow-md hover:bg-gray-50 transition duration-300 active:scale-95">
-                ← Logout & Return to Gateway
-            </button>
-        </div>
-    </div> <!-- End dashboardView -->
+        /** Updates the main status display. */
+        function updateStatus(message, state = 'loading') {
+            statusMessage.textContent = message;
+            statusDot.className = `status-dot ${state}`;
+        }
 
-    <!-- Footer -->
-    <footer class="bg-gray-900 text-white py-10 mt-auto">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <div class="mb-4">
-                <div class="text-xl font-bold">Destiny <span class="text-sky-400">Finance System</span></div>
-            </div>
-            <p class="text-sm text-gray-500 mt-6">
-                &copy; 2025 Destiny Investment Corporation. All rights reserved.
-            </p>
-        </div>
-    </footer>
+        /** Utility to pause execution for a readable duration. */
+        function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
 
+        async function connectToFirebase() {
+            let app, db, auth;
+            let connectionStartTime = Date.now();
+
+            try {
+                // 1. Check for global configuration variables
+                updateStatus("Checking Environment Configuration...", 'loading');
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+                if (!firebaseConfig) {
+                    throw new Error("Firebase configuration not found. Cannot proceed.");
+                }
+
+                log("Configuration loaded successfully.", 'success');
+                log(`App ID: ${appId}`);
+
+                // 2. Initialize Firebase App
+                updateStatus("Initializing Firebase App...", 'loading');
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                log("Firebase App Initialized.", 'success');
+
+                // 3. Authenticate User
+                updateStatus("Authenticating User...", 'loading');
+                let userCredential;
+
+                // The environment provides __initial_auth_token for authentication
+                if (initialAuthToken) {
+                    log("Attempting sign-in with Custom Token...");
+                    userCredential = await signInWithCustomToken(auth, initialAuthToken);
+                    log(`Signed in with Custom Token. User ID: ${userCredential.user.uid}`, 'success');
+                } else {
+                    log("Custom Token not found. Attempting Anonymous sign-in...");
+                    userCredential = await signInAnonymously(auth);
+                    log(`Signed in Anonymously. User ID: ${userCredential.user.uid}`, 'success');
+                }
+
+                const userId = auth.currentUser.uid;
+
+                // 4. Simulate Initial Data Read (Crucial for testing connection speed)
+                updateStatus("Performing initial Firestore read...", 'loading');
+                // We'll try to read a simple user document to ensure full connectivity
+                const docPath = `/artifacts/${appId}/users/${userId}/app_data/connection_test`;
+                const docRef = doc(db, docPath);
+
+                // Ensure the document exists before trying to read it (optional, but good practice)
+                // setDoc is now defined because it was imported
+                await setDoc(docRef, { timestamp: Date.now(), testId: Math.random() }, { merge: true });
+                log("Ensured test document exists/is created.", 'info');
+
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    log(`Initial data read successful. Document size: ${JSON.stringify(docSnap.data()).length} bytes.`, 'success');
+                } else {
+                    log("Initial data read successful, but test document did not exist.", 'success');
+                }
+
+                // 5. Final Success
+                let connectionEndTime = Date.now();
+                let totalTimeMs = connectionEndTime - connectionStartTime;
+
+                log(`Connection established and data read in ${totalTimeMs} ms.`, 'success');
+
+                updateStatus(`Connected successfully! (${totalTimeMs} ms)`, 'success');
+
+                // For readability, wait a moment before finishing
+                await wait(1000); 
+                updateStatus(`Ready. User ID: ${userId}`, 'success');
+
+
+            } catch (error) {
+                console.error("FIREBASE CONNECTION ERROR:", error);
+                log(`Failed to connect. Error: ${error.message}`, 'error');
+                updateStatus("Connection Failed (Check Console)", 'error');
+            }
+        }
+
+        window.onload = connectToFirebase;
+
+    </script>
 </body>
 </html>
