@@ -74,6 +74,21 @@
         const statusMessage = document.getElementById('status-message');
         const statusDot = document.getElementById('status-dot');
 
+        // --- Simulated Configuration Data for Debugging ---
+        // Since the environment is not providing the mandatory global variables, 
+        // we define secure-by-default dummy values to allow the code path to execute.
+        const DUMMY_FIREBASE_CONFIG = JSON.stringify({
+            apiKey: "AIzaSy_dummy_api_key_for_testing",
+            authDomain: "dummy-project.firebaseapp.com",
+            projectId: "dummy-project",
+            storageBucket: "dummy-project.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef01234567890abcdef"
+        });
+        const DUMMY_APP_ID = "simulated-app-123";
+        // --- End Simulation Data ---
+
+
         /** Logs a message to the console and the UI timeline. */
         function log(message, type = 'info') {
             const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -105,29 +120,30 @@
                 // 1. Check for global configuration variables
                 updateStatus("Checking Environment Configuration...", 'loading');
                 
-                // Retrieve global variables, defaulting to null if undefined
-                const appId = typeof __app_id !== 'undefined' ? __app_id : null;
-                const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+                // Retrieve global variables, using dummy values if undefined
+                let appId = typeof __app_id !== 'undefined' ? __app_id : null;
+                let firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-                // Mandatory check: App ID
+                // Apply simulation data if needed
                 if (!appId) {
-                    log("MANDATORY VARIABLE MISSING: __app_id is undefined. Using 'default-app-id'.", 'error');
-                    // We can proceed with a default ID, but warn the user.
-                    // If the environment is not set up correctly, this will fail later.
+                    log("MANDATORY VARIABLE MISSING: __app_id is undefined. Using simulated ID for debugging.", 'error');
+                    appId = DUMMY_APP_ID;
                 }
-
-                // Mandatory check: Firebase Config
                 if (!firebaseConfigString) {
-                    log("MANDATORY VARIABLE MISSING: __firebase_config is undefined. Initialization will fail.", 'error');
-                    throw new Error("Firebase configuration not found. Cannot proceed.");
+                    log("MANDATORY VARIABLE MISSING: __firebase_config is undefined. Using simulated config for debugging.", 'error');
+                    firebaseConfigString = DUMMY_FIREBASE_CONFIG;
                 }
                 
-                // Parse the configuration string
+                // Final check before parsing
+                if (!firebaseConfigString) {
+                    throw new Error("Firebase configuration still not available after simulation attempt. Cannot proceed.");
+                }
+
                 const firebaseConfig = JSON.parse(firebaseConfigString);
 
                 log("Configuration loaded successfully.", 'success');
-                log(`App ID: ${appId || 'default-app-id'}`);
+                log(`App ID: ${appId}`);
 
                 // 2. Initialize Firebase App
                 updateStatus("Initializing Firebase App...", 'loading');
@@ -157,7 +173,7 @@
                 updateStatus("Performing initial Firestore read/write test...", 'loading');
                 
                 // Define the document path using the retrieved App ID and User ID
-                const docPath = `/artifacts/${appId || 'default-app-id'}/users/${userId}/app_data/connection_test`;
+                const docPath = `/artifacts/${appId}/users/${userId}/app_data/connection_test`;
                 const docRef = doc(db, docPath);
 
                 // Write a test document (setDoc) to ensure write permissions
