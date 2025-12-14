@@ -1,21 +1,12 @@
-# Add your build steps here if you have a build system (like npm install/npm run build)
-  # Example:
-  # - name: Setup Node.js
-  #   uses: actions/setup-node@v4
-  #   with:
-  #     node-version: '20'
-  # - name: Install dependencies
-  #   run: npm install
-  # - name: Build project
-  #   run: npm run build
-
-  - name: Setup Pages
-    id: pages
+ - name: Setup Pages
     uses: actions/configure-pages@v5
 
-  # Upload the artifact (your built or source code). If you have a build step, change 'source_path' to 'dist' or 'build'.
+  # The key step: upload all files in the repository root as the artifact
   - name: Upload artifact
     uses: actions/upload-pages-artifact@v3
     with:
-      # Assumes your static files are in the root of the repository
-      path: './' 
+      path: './'
+
+  - name: Deploy to GitHub Pages
+    id: deployment
+    uses: actions/deploy-pages@v4
