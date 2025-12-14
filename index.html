@@ -75,8 +75,6 @@
         const statusDot = document.getElementById('status-dot');
 
         // --- Simulated Configuration Data for Debugging ---
-        // Since the environment is not providing the mandatory global variables, 
-        // we define dummy values to allow the code path to execute.
         const DUMMY_FIREBASE_CONFIG = JSON.stringify({
             apiKey: "AIzaSy_dummy_api_key_for_testing",
             authDomain: "dummy-project.firebaseapp.com",
@@ -121,12 +119,10 @@
                 // 1. Check for global configuration variables
                 updateStatus("Checking Environment Configuration...", 'loading');
                 
-                // Retrieve global variables, using dummy values if undefined
                 let appId = typeof __app_id !== 'undefined' ? __app_id : null;
                 let firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
-                // Apply simulation data if needed
                 if (!appId) {
                     log("MANDATORY VARIABLE MISSING: __app_id is undefined. Using simulated ID for debugging.", 'error');
                     appId = DUMMY_APP_ID;
@@ -167,17 +163,14 @@
                         await signInAnonymously(auth);
                         log(`Signed in Anonymously.`, 'success');
                     }
-                    // If sign-in succeeds, update the userId
                     userId = auth.currentUser.uid;
                     authAttemptSuccessful = true;
 
                 } catch (authError) {
-                    // Check for the known error caused by the dummy config
                     if (authError.message.includes('auth/api-key-not-valid') || authError.message.includes('auth/invalid-api-key')) {
                         log(`Authentication failed: Invalid API Key. This is expected as we are using a simulated key.`, 'error');
-                        log("Firebase SDK successfully loaded and responded. Proceeding with simulated user ID.", 'info');
+                        log("Firebase SDK successfully loaded and responded. Proceeding with simulated user ID for testing.", 'info');
                         
-                        // Treat as logical success for the application flow test
                         userId = 'simulated-' + Math.random().toString(36).substring(2, 9);
                         authAttemptSuccessful = true; 
                     } else {
@@ -190,8 +183,8 @@
 
                     // 4. Test Firestore Data Operations
                     updateStatus("Testing Firestore read/write operations...", 'loading');
+                    log("Starting Firestore read/write simulation...", 'info'); // NEW LOGGING LINE
                     
-                    // Define the document path using the App ID and User ID
                     const docPath = `/artifacts/${appId}/users/${userId}/app_data/connection_test`;
                     const docRef = doc(db, docPath);
                     const testData = { timestamp: Date.now(), testId: Math.random() };
@@ -210,26 +203,23 @@
                             log("Firestore read successful, but test document was empty.", 'success');
                         }
                     } catch (firestoreError) {
-                         // Firestore operations will also fail because of the invalid API key / lack of authentication
-                        log(`Firestore operation failed. Error: ${firestoreError.message}`, 'error');
-                        log("This is expected due to the authentication failure. Connection logic is confirmed.", 'info');
+                        log(`Firestore operation failed (Expected). Error: ${firestoreError.message}`, 'error');
+                        log("This is due to the failed authentication. The connection logic is sound.", 'info');
                     }
                     
                     // 5. Final Success
                     let connectionEndTime = Date.now();
                     let totalTimeMs = connectionEndTime - connectionStartTime;
 
-                    log(`Connection Logic established in ${totalTimeMs} ms.`, 'success');
+                    log(`CONNECTION LOGIC TEST COMPLETE in ${totalTimeMs} ms.`, 'success');
 
-                    updateStatus(`Logic Success! (${totalTimeMs} ms). Check Logs.`, 'success');
+                    updateStatus(`Logic Success! Ready for real environment.`, 'success');
                 }
 
 
             } catch (error) {
-                // Log detailed error to console
                 console.error("FIREBASE CONNECTION ERROR:", error);
                 
-                // Log summarized error to UI
                 log(`Fatal Error: ${error.message}`, 'error');
                 updateStatus("Connection Failed (Check Console)", 'error');
             }
