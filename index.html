@@ -12,239 +12,265 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f7f9fc;
-            /* Enable smooth scrolling for internal anchors */
             scroll-behavior: smooth;
         }
         .header-shadow {
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
         }
-
-        /* CRITICAL: Styling for the temporary message box - Centered and High Z-index */
-        #messageBox {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%); /* Center perfectly */
-            z-index: 9999; /* Max visibility */
-            padding: 1.5rem 2.5rem;
-            border-radius: 0.75rem;
-            background-color: #dc2626; /* Bright Red for visibility */
-            color: white;
-            font-weight: bold;
-            text-align: center;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            max-width: 90%; 
+        /* Custom class to hide elements */
+        .hidden-view {
+            display: none;
         }
-        .message-active {
-            opacity: 1 !important;
+        /* Custom button styling for active state visibility */
+        .app-button {
+            transition: all 0.2s ease;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
 
-    <!-- Header / Navigation (Using Sky Blue) -->
+    <!-- Header / Navigation -->
     <header class="sticky top-0 z-50 bg-white border-b border-gray-100 header-shadow">
         <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div class="text-3xl font-extrabold text-gray-900">
+            <div class="text-3xl font-extrabold text-gray-900 cursor-pointer" onclick="navigateTo('landing')">
                 Destiny <span class="text-sky-700">Finance</span>
             </div>
-            <!-- Navigation Links -->
-            <div class="space-x-4 hidden sm:flex">
-                <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 cursor-pointer">Core Modules</a>
-                <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 cursor-pointer">Audit & Compliance</a>
-                <!-- SIGN IN BUTTON with clear visual feedback -->
-                <button id="signInButtonNav" class="text-white bg-sky-700 px-3 py-1.5 rounded-lg text-sm font-medium transition duration-150 shadow-md 
-                       hover:bg-sky-800 hover:scale-105 active:scale-90 transform cursor-pointer">
+            <!-- Navigation Links (Only visible on landing page) -->
+            <div id="landingNavLinks" class="space-x-4 hidden sm:flex">
+                <a href="#features" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Core Modules</a>
+                <a href="#reporting" class="nav-link text-gray-600 hover:text-sky-700 transition duration-150 app-button">Audit & Compliance</a>
+                <button id="signInButtonNav" class="app-button text-white bg-sky-700 px-3 py-1.5 rounded-lg text-sm font-medium transition duration-150 shadow-md 
+                       hover:bg-sky-800 hover:scale-105 active:scale-90 transform">
                     Sign In
                 </button>
             </div>
-            <!-- Mobile Menu Placeholder (Not yet functional) -->
-            <button class="sm:hidden text-gray-600 hover:text-sky-700">
-                <!-- Simple hamburger icon (Lucide Icon: Menu) -->
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="4" x2="20" y1="12" y2="12" />
-                    <line x1="4" x2="20" y1="6" y2="6" />
-                    <line x1="4" x2="20" y1="18" y2="18" />
-                </svg>
-            </button>
         </nav>
     </header>
 
-    <!-- Main Content Area -->
-    <main class="py-16 md:py-24">
-        <!-- 1. Hero Section -->
-        <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
-            <div class="max-w-3xl mx-auto">
-                <span class="inline-block px-4 py-1.5 mb-4 text-xs font-bold uppercase tracking-widest text-sky-700 bg-sky-100 rounded-full shadow-inner">
-                    DESTINY INVESTMENT CORPORATION
-                </span>
-                <h1 class="text-6xl md:text-8xl font-extrabold text-gray-900 leading-tight mb-8">
-                    <span class="text-sky-700">Financial</span> System Gateway
-                </h1>
-                <p class="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
-                    The secure, unified platform for all financial management, reporting, and compliance activities within Destiny Investment Corporation.
-                </p>
-                <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
-                    <!-- LAUNCH BUTTON with clear visual feedback -->
-                    <button id="launchDashboardButton" class="inline-flex items-center justify-center px-10 py-4 border border-transparent text-lg font-bold rounded-xl shadow-xl text-white bg-sky-700 
-                            transition duration-300 transform 
-                            hover:bg-sky-800 hover:scale-105 active:scale-90 cursor-pointer">
-                        Launch Dashboard
-                    </button>
-                    <a href="#features" class="nav-link inline-flex items-center justify-center px-10 py-4 text-lg font-medium rounded-xl text-gray-700 bg-white border border-gray-300 shadow-md hover:bg-gray-50 transition duration-300 cursor-pointer">
-                        Explore Features
-                    </a>
+    <!-- 1. LANDING PAGE VIEW -->
+    <div id="landingView">
+        <main class="py-16 md:py-24">
+            <!-- Hero Section -->
+            <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-20">
+                <div class="max-w-3xl mx-auto">
+                    <span class="inline-block px-4 py-1.5 mb-4 text-xs font-bold uppercase tracking-widest text-sky-700 bg-sky-100 rounded-full shadow-inner">
+                        DESTINY INVESTMENT CORPORATION
+                    </span>
+                    <h1 class="text-6xl md:text-8xl font-extrabold text-gray-900 leading-tight mb-8">
+                        <span class="text-sky-700">Financial</span> System Gateway
+                    </h1>
+                    <p class="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
+                        The secure, unified platform for all financial management, reporting, and compliance activities.
+                    </p>
+                    <div class="space-y-4 sm:space-y-0 sm:space-x-4 flex flex-col sm:flex-row justify-center">
+                        <!-- LAUNCH BUTTON -->
+                        <button id="launchDashboardButton" class="app-button inline-flex items-center justify-center px-10 py-4 border border-transparent text-lg font-bold rounded-xl shadow-xl text-white bg-sky-700 
+                                transition duration-300 transform 
+                                hover:bg-sky-800 hover:scale-105 active:scale-90">
+                            Launch Dashboard
+                        </button>
+                        <a href="#features" class="nav-link app-button inline-flex items-center justify-center px-10 py-4 text-lg font-medium rounded-xl text-gray-700 bg-white border border-gray-300 shadow-md hover:bg-gray-50 transition duration-300">
+                            Explore Features
+                        </a>
+                    </div>
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- 2. Features Section (Target for #features anchor) -->
-        <section id="features" class="bg-white py-16 md:py-20 border-t border-gray-100">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="text-center mb-16">
+            <!-- Features Section (Target for #features anchor) -->
+            <section id="features" class="bg-white py-16 md:py-20 border-t border-gray-100">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="text-center mb-16">
+                        <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
+                            Enterprise-Grade Financial Modules
+                        </h2>
+                        <p class="mt-4 text-xl text-gray-600">
+                            Efficiency and precision built into every process.
+                        </p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
+                        <div class="p-6 bg-sky-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-sky-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-700 mb-4"><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10Z" /></svg>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Investment Portfolio</h3>
+                            <p class="text-gray-600">Comprehensive, real-time analytics across all asset classes and managed funds.</p>
+                        </div>
+                        <div class="p-6 bg-green-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-green-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-700 mb-4"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m9 11 3 3L22 4" /></svg>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Regulatory Compliance</h3>
+                            <p class="text-gray-600">Automated audit trails and generation of mandatory financial disclosures (e.g., SEC).</p>
+                        </div>
+                        <div class="p-6 bg-purple-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-purple-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-purple-700 mb-4"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 3 0 0 0 21 12" /></svg>
+                            <h3 class="text-2xl font-bold text-gray-900 mb-2">Centralized Data Ledger</h3>
+                            <p class="text-gray-600">A single source of truth for all transactional data, ensuring accuracy and security.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Reporting Section (Target for #reporting anchor) -->
+            <section id="reporting" class="py-16 md:py-20 border-t border-gray-100 bg-gray-50">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                     <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
-                        Enterprise-Grade Financial Modules
+                        Audit & Compliance Reporting
                     </h2>
-                    <p class="mt-4 text-xl text-gray-600">
-                        Efficiency and precision built into every process.
+                    <p class="text-xl text-gray-600 max-w-2xl mx-auto">
+                        A dedicated module for generating comprehensive audit trails, regulatory reports, and internal compliance checks.
                     </p>
                 </div>
+            </section>
+        </main>
+    </div> <!-- End landingView -->
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-                    <!-- Feature 1: Investment Portfolio -->
-                    <div class="p-6 bg-sky-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-sky-600">
-                        <!-- Icon: Pie Chart (Analysis) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-700 mb-4">
-                            <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
-                            <path d="M22 12A10 10 0 0 0 12 2v10Z" />
-                        </svg>
-                        <h3 class="text-2xl font-bold text-gray-900 mb-2">Investment Portfolio</h3>
-                        <p class="text-gray-600">
-                            Comprehensive, real-time analytics across all asset classes and managed funds.
-                        </p>
+    <!-- 2. DASHBOARD VIEW (Initially Hidden) -->
+    <div id="dashboardView" class="hidden-view py-20 min-h-[80vh]">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 class="text-5xl font-extrabold text-sky-700 mb-6">
+                Welcome to the Secure Dashboard
+            </h2>
+            <p class="text-xl text-gray-600 mb-10">
+                This is the simulated environment for real-time financial monitoring and task management.
+            </p>
+            <div class="bg-white p-8 rounded-xl shadow-2xl border-t-4 border-sky-600 max-w-4xl mx-auto">
+                <p class="text-2xl font-semibold text-gray-800 mb-4">Current System Status</p>
+                <div class="flex justify-around items-center py-4 text-left">
+                    <div class="text-gray-600">
+                        <p class="text-4xl font-bold text-green-600">ONLINE</p>
+                        <p class="text-sm uppercase tracking-wider">All Systems Operational</p>
                     </div>
-
-                    <!-- Feature 2: Regulatory Compliance -->
-                    <div class="p-6 bg-green-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-green-600">
-                        <!-- Icon: Check Circle (Compliance) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-700 mb-4">
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                            <path d="m9 11 3 3L22 4" />
-                        </svg>
-                        <h3 class="text-2xl font-bold text-gray-900 mb-2">Regulatory Compliance</h3>
-                        <p class="text-gray-600">
-                            Automated audit trails and generation of mandatory financial disclosures (e.g., SEC).
-                        </p>
-                    </div>
-
-                    <!-- Feature 3: Secure Scalability -->
-                    <div class="p-6 bg-purple-50 rounded-xl shadow-lg transition duration-300 hover:shadow-xl border-t-4 border-purple-600">
-                        <!-- Icon: Database (Data) -->
-                        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-purple-700 mb-4">
-                            <ellipse cx="12" cy="5" rx="9" ry="3" />
-                            <path d="M3 5V19A9 3 0 0 0 21 19V5" />
-                            <path d="M3 12A9 3 3 0 0 0 21 12" />
-                        </svg>
-                        <h3 class="text-2xl font-bold text-gray-900 mb-2">Centralized Data Ledger</h3>
-                        <p class="text-gray-600">
-                            A single source of truth for all transactional data, ensuring accuracy and security.
-                        </p>
+                    <div class="text-gray-600">
+                        <p class="text-4xl font-bold text-gray-900">$14.5M</p>
+                        <p class="text-sm uppercase tracking-wider">Daily Trade Volume</p>
                     </div>
                 </div>
             </div>
-        </section>
+            <button onclick="navigateTo('landing')" class="app-button mt-12 inline-flex items-center px-6 py-3 border border-gray-300 text-lg font-medium rounded-xl text-gray-700 bg-white shadow-md hover:bg-gray-50 transition duration-300 active:scale-95">
+                ← Back to Gateway
+            </button>
+        </div>
+    </div> <!-- End dashboardView -->
 
-        <!-- 3. Reporting Section (Target for #reporting anchor) -->
-        <section id="reporting" class="py-16 md:py-20 border-t border-gray-100 bg-gray-50">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                <h2 class="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
-                    Audit & Compliance Reporting
-                </h2>
-                <p class="text-xl text-gray-600 max-w-2xl mx-auto">
-                    A dedicated module for generating comprehensive audit trails, regulatory reports, and internal compliance checks.
-                </p>
-            </div>
-        </section>
+    <!-- 3. SIGN IN VIEW (Initially Hidden) -->
+    <div id="signInView" class="hidden-view py-20 min-h-[80vh] flex items-start justify-center">
+        <div class="bg-white p-8 sm:p-12 rounded-xl shadow-2xl border-t-4 border-sky-600 w-full max-w-md">
+            <h2 class="text-3xl font-bold text-sky-700 mb-6 text-center">
+                Sign In to Destiny Finance
+            </h2>
+            <form onsubmit="event.preventDefault(); navigateTo('dashboard');">
+                <div class="mb-4">
+                    <label for="username" class="block text-gray-700 text-sm font-medium mb-2">Username</label>
+                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Enter your system ID" required>
+                </div>
+                <div class="mb-6">
+                    <label for="password" class="block text-gray-700 text-sm font-medium mb-2">Password</label>
+                    <input type="password" id="password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Enter password" required>
+                </div>
+                <button type="submit" class="app-button w-full inline-flex items-center justify-center px-4 py-3 border border-transparent text-lg font-bold rounded-xl shadow-lg text-white bg-sky-700 
+                        transition duration-300 transform 
+                        hover:bg-sky-800 active:scale-95">
+                    Secure Login
+                </button>
+            </form>
+            <button onclick="navigateTo('landing')" class="app-button mt-6 w-full text-center text-sm text-gray-500 hover:text-sky-700 transition duration-150 active:scale-95">
+                Cancel / Return to Gateway
+            </button>
+        </div>
+    </div> <!-- End signInView -->
 
-    </main>
 
-    <!-- Temporary Message Box (Visible Feedback) -->
-    <div id="messageBox"></div>
-
-    <!-- Footer -->
-    <footer class="bg-gray-900 text-white py-10 mt-12">
+    <!-- Footer (Will be present on all pages) -->
+    <footer class="bg-gray-900 text-white py-10 mt-auto">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <div class="mb-4">
                 <div class="text-xl font-bold">Destiny <span class="text-sky-400">Finance System</span></div>
             </div>
-            <div class="space-x-4 text-sm mb-4 text-gray-300">
-                <a href="#features" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Terms</a>
-                <a href="#reporting" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Privacy</a>
-                <a href="#" class="nav-link hover:text-sky-400 transition duration-150 cursor-pointer">Contact IT</a>
-            </div>
             <p class="text-sm text-gray-500 mt-6">
-                &copy; 2025 Destiny Investment Corporation. All rights reserved. Secure Financial Operations.
+                &copy; 2025 Destiny Investment Corporation. All rights reserved.
             </p>
         </div>
     </footer>
 
-    <!-- JavaScript for Interactivity -->
+    <!-- JavaScript for Interactivity and View Management -->
     <script>
-        /**
-         * Displays a temporary notification message in the center of the screen.
-         * @param {string} message The text to display.
-         */
-        function showNotification(message) {
-            const messageBox = document.getElementById('messageBox');
-            messageBox.textContent = message;
-            messageBox.classList.add('message-active');
+        // Global variable to track the current view
+        let currentView = 'landing';
+        
+        // References to the main view containers
+        const views = {
+            landing: document.getElementById('landingView'),
+            dashboard: document.getElementById('dashboardView'),
+            signIn: document.getElementById('signInView'),
+        };
 
-            // Hide the message after 5 seconds
-            setTimeout(() => {
-                messageBox.classList.remove('message-active');
-            }, 5000); 
+        /**
+         * Switches the application view based on the provided view name.
+         * @param {string} viewName The name of the view to show ('landing', 'dashboard', 'signIn').
+         */
+        function navigateTo(viewName) {
+            // Validate the view name
+            if (!views[viewName]) {
+                console.error(`Attempted to navigate to unknown view: ${viewName}`);
+                return;
+            }
+
+            currentView = viewName;
+            
+            // Hide all views, then show the requested one
+            Object.values(views).forEach(view => {
+                view.classList.add('hidden-view');
+            });
+            views[viewName].classList.remove('hidden-view');
+
+            // Toggle visibility of specific landing page elements
+            const navLinks = document.getElementById('landingNavLinks');
+            const footer = document.querySelector('footer');
+            
+            if (viewName === 'landing') {
+                navLinks.classList.remove('hidden');
+                // Ensure anchor links work when returning to landing page
+                document.documentElement.scrollTop = 0; 
+                document.body.scrollTop = 0;
+            } else {
+                // Hide navigation links on dashboard/sign-in pages
+                navLinks.classList.add('hidden');
+            }
+
+            console.log(`Navigation successful. Current View: ${currentView}`);
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // 1. Attach handlers to the primary action buttons
+            // 1. Initial navigation setup (default to landing)
+            navigateTo('landing');
+
+            // 2. Attach handlers to the primary action buttons
             const launchDashboardButton = document.getElementById('launchDashboardButton');
             const signInButtonNav = document.getElementById('signInButtonNav');
 
             if (launchDashboardButton) {
                 launchDashboardButton.addEventListener('click', () => {
-                    showNotification('ACTION TRIGGERED: Launching Dashboard Portal!');
-                    console.log('Launch Dashboard clicked.');
+                    navigateTo('dashboard');
                 });
             }
 
             if (signInButtonNav) {
                 signInButtonNav.addEventListener('click', () => {
-                    showNotification('ACTION TRIGGERED: Showing Sign-In Dialog!');
-                    console.log('Sign In clicked.');
+                    navigateTo('signIn');
                 });
             }
 
-            // 2. Attach handlers to all internal navigation links 
-            document.querySelectorAll('.nav-link').forEach(link => {
+            // 3. Attach handlers to all internal navigation links (only on landing page)
+            document.querySelectorAll('#landingView .nav-link').forEach(link => {
                 const href = link.getAttribute('href');
                 
                 if (href && href.startsWith('#') && href.length > 1) {
                     link.addEventListener('click', (e) => {
-                        // Smooth scrolling handled by CSS, just provide feedback
-                        showNotification(`Navigating to section: ${href.substring(1)}`);
-                        console.log(`Navigating to section: ${href}`);
+                        // Let CSS handle smooth scroll, just ensure we are on the landing view
+                        navigateTo('landing');
                     });
                 } 
-                else {
-                    link.addEventListener('click', (e) => {
-                        e.preventDefault(); 
-                        showNotification(`PLACEHOLDER CLICKED: ${link.textContent.trim()}`);
-                        console.log(`Placeholder link clicked: ${link.textContent.trim()}`);
-                    });
-                }
             });
-            console.log("Interactive scripts loaded and maximum visual feedback is active.");
+            
+            console.log("Interactive scripts loaded and view management initialized.");
         });
     </script>
