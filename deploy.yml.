@@ -29,18 +29,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
       
-      - name: Set up Node.js for Build
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      
-      - name: Install Dependencies and Build Project
-        run: |
-          # The mock build step is required since we don't have a real build process
-          # If your app has a real build (e.g., 'npm run build'), replace the two lines below
-          mkdir -p public
-          echo "<!DOCTYPE html><html><head><title>Deployed</title></head><body>Deployment Successful!</body></html>" > public/index.html
+      # Since index.html is in the 'public' folder, we assume no build is needed.
+      # We skip Node.js setup and any mock build steps.
           
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -48,6 +38,8 @@ jobs:
       - name: Upload Deployment Artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          # FIX: Changed path to './public' to deploy the contents of the public folder
+          # where your index.html is located.
           path: './public' 
 
       - name: Deploy to GitHub Pages
