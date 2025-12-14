@@ -1,42 +1,56 @@
-# CRITICAL: These permissions are required for the deployment actions to work
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+name: Deploy to GitHub Pages
 
-steps:
-  - name: Checkout Code
-    uses: actions/checkout@v4
+on:
+  # Allows the workflow to run when a push is made to the 'main' branch
+  push:
+    branches:
+      - main
+  # ------------------------------------------------------------------
+  # THIS IS THE CRITICAL LINE TO ENABLE MANUAL TRIGGERING
+  # This section adds the "Run workflow" button on the Actions tab.
+  workflow_dispatch:
+  # ------------------------------------------------------------------
 
-  - name: Set up Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: '20'
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    
+    # Permissions are required to deploy the pages artifact
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
-  - name: Cache Node Modules
-    uses: actions/cache@v4
-    with:
-      path: node_modules
-      key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-      restore-keys: |
-        ${{ runner.os }}-node-
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  - name: Install Dependencies
-    run: npm ci
+      # Setup Node.js if you are building a React/Angular/JS project.
+      # If your project is pure HTML/CSS, you can skip this block.
+      - name: Setup Node.js (Optional: Add if building code)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-  - name: Build Project
-    # CRITICAL: This runs your build script. If your script is not 'build', change it here.
-    run: npm run build
+      # Install dependencies and build your project (adjust commands as needed)
+      - name: Install dependencies and build (Optional: Add if building code)
+        run: |
+          npm install
+          # Replace 'build' with the actual build command if different
+          npm run build
 
-  - name: Setup GitHub Pages Environment
-    uses: actions/configure-pages@v5
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
-  - name: Upload Artifact
-    uses: actions/upload-pages-artifact@v3
-    with:
-      # CRITICAL: This is the folder containing your final built files (e.g., index.html)
-      path: './dist'
+      # Upload the artifact (the folder containing your compiled website)
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # This should be the directory that contains your final website files (e.g., the 'build' or 'dist' folder)
+          path: './build' 
+          # Use './' if your website files are in the repository root
 
-  - name: Deploy to GitHub Pages
-    id: deployment
-    uses: actions/deploy-pages@v4
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
