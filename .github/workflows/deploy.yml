@@ -1,12 +1,49 @@
- - name: Setup Pages
-    uses: actions/configure-pages@v5
+name: Deploy Static Content to GitHub Pages
 
-  # The key step: upload all files in the repository root as the artifact
-  - name: Upload artifact
-    uses: actions/upload-pages-artifact@v3
-    with:
-      path: './'
+on:
+  # Triggers the workflow on push events to the `main` branch
+  push:
+    branches: ["main"]
 
-  - name: Deploy to GitHub Pages
-    id: deployment
-    uses: actions/deploy-pages@v4
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions needed for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allows only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      # DIAGNOSTIC STEP: This will list all files in the console output.
+      - name: Verify Files Before Upload
+        run: |
+          echo "Listing files in the deployment source directory (Repository Root):"
+          ls -FAL
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Deployment Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Deploying from the repository root, where index.html must be located.
+          path: '.' 
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
