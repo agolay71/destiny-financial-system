@@ -27,21 +27,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions:checkout@v4
       
       # Since index.html is in the 'public' folder, we assume no build is needed.
       # We skip Node.js setup and any mock build steps.
           
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions:configure-pages@v5
 
       - name: Upload Deployment Artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions:upload-pages-artifact@v3
         with:
-          # FIX: Changed path to './public' to deploy the contents of the public folder
-          # where your index.html is located.
+          # FIX: This path points correctly to your 'public' folder.
           path: './public' 
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions:deploy-pages@v4
