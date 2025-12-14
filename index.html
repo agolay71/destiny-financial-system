@@ -121,6 +121,25 @@
 
             console.log(`Navigation successful. Current View: ${currentView} | Role: ${userRole}`);
         }
+        
+        /**
+         * Finalizes the initialization, sets the state, and navigates after a guaranteed delay.
+         * @param {string} role The final determined user role.
+         * @param {string|null} id The final determined user ID.
+         */
+        async function finalizeInitialization(role, id) {
+            userId = id;
+            userRole = role;
+            updateLoadingStatus(`Initialization complete. Proceeding as ${role}.`);
+            
+            // IMPORTANT: Add a guaranteed 500ms minimum wait time after final status update
+            // to ensure the status message is rendered and prevent perceived jank/hang.
+            await new Promise(resolve => setTimeout(resolve, 500)); 
+            
+            isAuthReady = true;
+            navigateTo('landing');
+        }
+
 
         // === FIREBASE INITIALIZATION AND AUTHENTICATION ===
 
@@ -140,24 +159,26 @@
 
                 // 3. Set up Auth State Listener (handles initial sign-in result)
                 let authChecked = false;
-
-                firebase.onAuthStateChanged(auth, async (user) => {
+                const unsubscribe = firebase.onAuthStateChanged(auth, async (user) => {
                     if (authChecked) return; // Only process the first status change
                     authChecked = true;
+                    // Unsubscribe immediately as we only care about the initial state
+                    if (unsubscribe) unsubscribe(); 
 
+                    let finalRole = 'Guest';
+                    let finalId = null;
+                    
                     if (user) {
-                        userId = user.uid;
-                        updateLoadingStatus(`Authenticated as UID: ${userId.substring(0, 8)}...`);
-                        await fetchUserRole(userId); // Get the user's role
+                        finalId = user.uid;
+                        updateLoadingStatus(`Authenticated as UID: ${finalId.substring(0, 8)}... Fetching role...`);
+                        await fetchUserRole(finalId); // This updates the global userRole
+                        finalRole = userRole; // Use the globally updated role
                     } else {
-                        userId = null;
-                        userRole = 'Guest';
                         updateLoadingStatus("Authentication completed as Guest.");
                     }
                     
-                    isAuthReady = true;
-                    // Always navigate to landing after auth check is complete
-                    navigateTo('landing');
+                    // Finalize initialization and navigate after delay
+                    await finalizeInitialization(finalRole, finalId);
                 });
                 
                 // 4. Perform Initial Authentication Attempt
@@ -165,16 +186,17 @@
                 if (initialAuthToken) {
                     await firebase.signInWithCustomToken(auth, initialAuthToken);
                 } else {
+                    // This attempt will fire the onAuthStateChanged listener above
                     await firebase.signInAnonymously(auth);
                 }
 
             } catch (error) {
                 console.error("Firebase Initialization Failed:", error);
-                updateLoadingStatus("Error connecting. Proceeding as Guest.");
-                // Ensure navigation happens even on error
-                userRole = 'Guest';
-                isAuthReady = true;
-                navigateTo('landing');
+                // If the error occurs before the auth listener fires, we handle the finalization here.
+                // Otherwise, the listener will handle it.
+                if (!authChecked) {
+                    await finalizeInitialization('Guest', null);
+                }
             }
         }
 
@@ -291,7 +313,7 @@
             if (launchDashboardButton) {
                 launchDashboardButton.addEventListener('click', () => {
                     // If authenticated but not registered, go to login. If registered, go to dashboard.
-                    if (userRole !== 'Guest') {
+                    if (userRole !== 'Guest' && userRole !== 'User') { // Assumes 'User' or 'SuperAdmin' means registered
                         navigateTo('dashboard');
                     } else {
                         navigateTo('login');
